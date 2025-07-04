@@ -1,0 +1,2 @@
+# ADS8688-STM32F103C8
+一个使用STM32控制器驱动数模转换器ADS8688的程序，使用CubeIDE开发，也可以用安装了platformio插件的VSCode打开
