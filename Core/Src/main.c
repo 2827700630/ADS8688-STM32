@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -23,11 +23,25 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ADS8688.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+#define default_interval 500
+
+// 用于打印二进制数的宏和模式
+#define BYTE_TO_BIN_PAT "%c%c%c%c%c%c%c%c"
+#define BYTE_TO_BIN(byte)        \
+  (byte & 0x80 ? '1' : '0'),     \
+      (byte & 0x40 ? '1' : '0'), \
+      (byte & 0x20 ? '1' : '0'), \
+      (byte & 0x10 ? '1' : '0'), \
+      (byte & 0x08 ? '1' : '0'), \
+      (byte & 0x04 ? '1' : '0'), \
+      (byte & 0x02 ? '1' : '0'), \
+      (byte & 0x01 ? '1' : '0')
 
 /* USER CODE END PTD */
 
@@ -44,6 +58,17 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+SPI_HandleTypeDef hspi1;
+char buf[100];
+int count = 0;
+// 时序变量
+unsigned int current = 0, previous = 0, interval = default_interval;
+
+// ADS变量
+ADS8688 ads;
+uint16_t ads_data[8];
+float volt_helper = 0;
+int volt[8] = {0};
 
 /* USER CODE END PV */
 
@@ -89,15 +114,23 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_GPIO_WritePin(ADS8688_RST_GPIO_Port, ADS8688_RST_Pin, GPIO_PIN_SET);
+  ADS8688_Init(&ads, &hspi1, ADS8688_CS_GPIO_Port, ADS8688_CS_Pin);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin); // 翻转LED引脚状态
-    HAL_Delay(5000); // 延时5000毫秒
+
+    ADS_Read_All_Raw(&ads, ads_data);
+    for (int i = 0; i < 8; i++)
+    {
+
+      volt_helper = ((float)ads_data[i]) * 10.0 / 4095.0;
+      volt[i] = (int)(volt_helper * 100000000);
+      // 打印("通道_%d: %u    " BYTE_TO_BIN_PAT " " BYTE_TO_BIN_PAT "  %d.%d\n", i, (uint16_t)(ads_data[1] << 8 | ads_data[0]), BYTE_TO_BIN(ads_data[1]), BYTE_TO_BIN(ads_data[0]), volt[i] / 100000000, volt[i] % 100000000);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
