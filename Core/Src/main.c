@@ -29,20 +29,6 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-#define default_interval 500
-
-// 用于打印二进制数的宏和模式
-#define BYTE_TO_BIN_PAT "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BIN(byte)        \
-  (byte & 0x80 ? '1' : '0'),     \
-      (byte & 0x40 ? '1' : '0'), \
-      (byte & 0x20 ? '1' : '0'), \
-      (byte & 0x10 ? '1' : '0'), \
-      (byte & 0x08 ? '1' : '0'), \
-      (byte & 0x04 ? '1' : '0'), \
-      (byte & 0x02 ? '1' : '0'), \
-      (byte & 0x01 ? '1' : '0')
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -58,17 +44,23 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-SPI_HandleTypeDef hspi1;
-char buf[100];
-int count = 0;
-// 时序变量
-unsigned int current = 0, previous = 0, interval = default_interval;
+// SPI_HandleTypeDef hspi1;
 
 // ADS变量
-ADS8688 ads;
+ADS8688_HandleTypeDef ads; // 这个设计对一个STM32接入多个ADS8688友好
 uint16_t ads_data[8];
-float volt_helper = 0;
-int volt[8] = {0};
+float voltage[8] = {0};
+// 根据ADS8688_Init中的设置，定义每个通道的电压量程（单位：V）
+const float channel_voltage_ranges[8] = {
+    5.12,  // CH0: 0 to 1.25 x VREF (VREF = 4.096V)
+    5.12,  // CH1: 0 to 1.25 x VREF
+    10.24, // CH2: 0 to 2.5 x VREF
+    10.24, // CH3: 0 to 2.5 x VREF
+    10.24, // CH4: 0 to 2.5 x VREF
+    10.24, // CH5: 0 to 2.5 x VREF
+    5.12,  // CH6: 0 to 1.25 x VREF
+    5.12   // CH7: 0 to 1.25 x VREF
+};
 
 /* USER CODE END PV */
 
@@ -84,9 +76,9 @@ void SystemClock_Config(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -123,13 +115,11 @@ int main(void)
   while (1)
   {
 
-    ADS_Read_All_Raw(&ads, ads_data);
+    ADS8688_ReadAllChannelsRaw(&ads, ads_data);
     for (int i = 0; i < 8; i++)
     {
-
-      volt_helper = ((float)ads_data[i]) * 10.0 / 4095.0;
-      volt[i] = (int)(volt_helper * 100000000);
-      // 打印("通道_%d: %u    " BYTE_TO_BIN_PAT " " BYTE_TO_BIN_PAT "  %d.%d\n", i, (uint16_t)(ads_data[1] << 8 | ads_data[0]), BYTE_TO_BIN(ads_data[1]), BYTE_TO_BIN(ads_data[0]), volt[i] / 100000000, volt[i] % 100000000);
+      // 使用16位分辨率（65535）和对应通道的正确电压范围进行计算
+      voltage[i] = ((float)ads_data[i] / 65535.0) * channel_voltage_ranges[i];
     }
     /* USER CODE END WHILE */
 
@@ -139,17 +129,17 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -163,9 +153,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -182,9 +171,9 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -196,14 +185,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
