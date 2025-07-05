@@ -47,7 +47,7 @@
 //SPI_HandleTypeDef hspi1;
 
 // ADS变量
-ADS8688 ads;
+ADS8688_HandleTypeDef ads;
 uint16_t ads_data[8];
 float volt_helper = 0;
 int volt[8] = {0};
@@ -116,7 +116,7 @@ int main(void)
   while (1)
   {
 
-    ADS_Read_All_Raw(&ads, ads_data);
+    ADS8688_ReadAllChannelsRaw(&ads, ads_data);
     for (int i = 0; i < 8; i++)
     {
       // 使用16位分辨率（65535）和对应通道的正确电压范围进行计算
