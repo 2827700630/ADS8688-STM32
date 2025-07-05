@@ -1,4 +1,4 @@
-#include "ADS8688.h"
+#include "ads8688.h"
 
 /**
  * @brief ADS8688 初始化函数
@@ -17,61 +17,43 @@ uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hADS8688, SPI_HandleTypeDef *hspi, G
 
     uint8_t reg_data[2] = {0};
     uint8_t status = 0;
-    
+
     // 重置所有寄存器为默认值
     status += ADS8688_SendCommand(hADS8688, ADS8688_CMD_RESET, reg_data);
-    HAL_Delay(100);  // 复位后需要较长延时
-    
+    HAL_Delay(1); //
+
     // 发送无操作命令使ADS进入空闲模式
     status += ADS8688_SendCommand(hADS8688, ADS8688_CMD_NO_OP, reg_data);
-    HAL_Delay(10);
-    
+    HAL_Delay(1);
+
     // 启用所有输入的自动扫描（数据手册第54页）
     // 如果只需要部分输入，请确保关闭未使用的通道
-    reg_data[0] = ADS8688_AUTO_SEQ_ALL_EN;  // 启用所有8个通道
+    reg_data[0] = ADS8688_AUTO_SEQ_ALL_EN; // 启用所有8个通道
     status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_AUTO_SEQ_EN, reg_data);
-    HAL_Delay(10);
-    
+    HAL_Delay(1);
+
     // 设置所需功能，如设备ID（多设备时）、报警使能/禁用及输出格式
-    reg_data[0] = 0x03;  // 此处选择id=0，报警禁用，SDO格式=3（数据手册第56页）
+    reg_data[0] = 0x03; // 此处选择id=0，报警禁用，SDO格式=3（数据手册第56页）
     status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_FEATURE_SELECT, reg_data);
-    HAL_Delay(10);
-    
-    // 设置所有通道输入范围（数据手册第57页）
-    // 0x05 -> 输入范围为0到2.5倍VREF（VREF=4.096V时为0-10.24V）
-    // 0x06 -> 输入范围为0到1.25倍VREF（VREF=4.096V时为0-5.12V）
-    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH0_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH1_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH2_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH3_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH4_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH5_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH6_RANGE, reg_data);
-    HAL_Delay(10);
-    
-    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH7_RANGE, reg_data);
-    HAL_Delay(10);
-    
+    HAL_Delay(1);
+
+    // 设置所有通道输入范围（数据手册Table 15），初始化时默认设置为最大量程来保护芯片
+    uint8_t channel_ranges[ADS8688_NUM_CHANNELS] = {
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道0: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道1: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道2: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道3: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道4: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道5: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF, // 通道6: -2.5 × VREF to 2.5 × VREF
+        ADS8688_RANGE_BIPOLAR_2_5_VREF  // 通道7: -2.5 × VREF to 2.5 × VREF
+    };
+
+    if (ADS8688_SetChannelRanges(hADS8688, channel_ranges) != HAL_OK)
+    {
+        status += 1; // 记录错误
+    }
+
     // 进入自动扫描状态，开始自动采集
     status += ADS8688_SendCommand(hADS8688, ADS8688_CMD_AUTO_RST, reg_data);
 
@@ -155,26 +137,121 @@ HAL_StatusTypeDef ADS8688_SendCommand(ADS8688_HandleTypeDef *hADS8688, uint8_t c
  * @param hADS8688 ADS8688句柄
  * @param data 存储8个通道原始数据的数组
  * @retval HAL状态
- * @note 循环读取所有通道的16位原始ADC数据，并进行右移4位处理
+ * @note 循环读取所有通道的16位原始ADC数据
  */
 HAL_StatusTypeDef ADS8688_ReadAllChannelsRaw(ADS8688_HandleTypeDef *hADS8688, uint16_t *data)
 {
-    HAL_StatusTypeDef ret;
+    HAL_StatusTypeDef ret = HAL_OK;
     uint8_t raw_data[2];
-    
+
     for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
     {
         // 发送无操作命令并读取数据
         ret = ADS8688_SendCommand(hADS8688, ADS8688_CMD_NO_OP, raw_data);
         if (ret != HAL_OK)
         {
-            break;  // 如果发生错误则退出
+            break; // 如果发生错误则退出
         }
-        
-        // 将接收到的两个8位数据合并为一个16位数据，并右移4位
-        // ADS8688输出16位数据，但有效数据在高12位
+
+        // 将接收到的两个8位数据合并为一个16位数据
+        // ADS8688输出16位数据，MSB在前，LSB在后，stm32是小端序
         data[i] = (uint16_t)(raw_data[1] << 8 | raw_data[0]);
     }
-    
+
     return ret;
+}
+
+/**
+ * @brief 设置所有通道的输入范围
+ * @param hADS8688 ADS8688句柄
+ * @param channel_ranges 8个通道的范围配置数组
+ * @retval HAL状态
+ * @note channel_ranges数组按通道0-7顺序排列，每个元素为对应通道的范围值
+ */
+HAL_StatusTypeDef ADS8688_SetChannelRanges(ADS8688_HandleTypeDef *hADS8688, uint8_t *channel_ranges)
+{
+    HAL_StatusTypeDef ret = HAL_OK;
+    uint8_t reg_data[2];
+
+    // 设置各通道范围寄存器的基地址
+    uint8_t range_reg_base = ADS8688_REG_CH0_RANGE;
+
+    for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
+    {
+        reg_data[0] = channel_ranges[i];
+        ret = ADS8688_WriteRegister(hADS8688, range_reg_base + i, reg_data);
+        if (ret != HAL_OK)
+        {
+            break; // 如果发生错误则退出
+        }
+        HAL_Delay(1); // 短暂延时确保寄存器写入完成
+    }
+
+    // 进入自动扫描状态，开始自动采集
+    ADS8688_SendCommand(hADS8688, ADS8688_CMD_AUTO_RST, reg_data);
+    return ret;
+}
+
+/**
+ * @brief 设置单个通道的输入范围
+ * @param hADS8688 ADS8688句柄
+ * @param channel 通道号 (0-7)
+ * @param range 范围值 (使用ADS8688_RANGE_xxx定义)
+ * @retval HAL状态
+ */
+HAL_StatusTypeDef ADS8688_SetSingleChannelRange(ADS8688_HandleTypeDef *hADS8688, uint8_t channel, uint8_t range)
+{
+    if (channel >= ADS8688_NUM_CHANNELS)
+    {
+        return HAL_ERROR; // 通道号超出范围
+    }
+
+    uint8_t reg_data[2];
+    reg_data[0] = range;
+
+    return ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH0_RANGE + channel, reg_data);
+    
+    // 进入自动扫描状态，开始自动采集
+    ADS8688_SendCommand(hADS8688, ADS8688_CMD_AUTO_RST, reg_data);
+}
+
+/**
+ * @brief 将ADC原始数据转换为电压值
+ * @param raw_value ADC原始数据 (0-65535)
+ * @param range 通道范围设置 (ADS8688_RANGE_xxx)
+ * @param vref 参考电压值 (V)
+ * @retval 转换后的电压值 (V)
+ */
+float ADS8688_ConvertToVoltage(uint16_t raw_value, uint8_t range, float vref)
+{
+    float voltage = 0.0;
+
+    switch (range)
+    {
+    case ADS8688_RANGE_BIPOLAR_2_5_VREF: // ±2.5 × VREF
+        voltage = ((float)raw_value - 32768.0) / 32768.0 * (2.5 * vref);
+        break;
+
+    case ADS8688_RANGE_BIPOLAR_1_25_VREF: // ±1.25 × VREF
+        voltage = ((float)raw_value - 32768.0) / 32768.0 * (1.25 * vref);
+        break;
+
+    case ADS8688_RANGE_BIPOLAR_0_625_VREF: // ±0.625 × VREF
+        voltage = ((float)raw_value - 32768.0) / 32768.0 * (0.625 * vref);
+        break;
+
+    case ADS8688_RANGE_UNIPOLAR_2_5_VREF: // 0 to 2.5 × VREF
+        voltage = (float)raw_value / 65535.0 * (2.5 * vref);
+        break;
+
+    case ADS8688_RANGE_UNIPOLAR_1_25_VREF: // 0 to 1.25 × VREF
+        voltage = (float)raw_value / 65535.0 * (1.25 * vref);
+        break;
+
+    default:
+        voltage = 0.0;
+        break;
+    }
+
+    return voltage;
 }

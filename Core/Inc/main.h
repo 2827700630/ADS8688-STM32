@@ -63,6 +63,8 @@ void Error_Handler(void);
 #define ADS8688_RST_GPIO_Port GPIOB
 #define ADS8688_CS_Pin GPIO_PIN_1
 #define ADS8688_CS_GPIO_Port GPIOB
+#define ADS8688_REFSEL_Pin GPIO_PIN_10
+#define ADS8688_REFSEL_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
