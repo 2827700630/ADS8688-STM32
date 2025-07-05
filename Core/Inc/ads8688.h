@@ -59,28 +59,15 @@ typedef struct
 
 } ADS8688;
 
-/*
- *
- * 初始化
- *
- */
+// 初始化
 uint8_t ADS8688_Init(ADS8688 *ads, SPI_HandleTypeDef *spiHandle, GPIO_TypeDef *csPinBank, uint16_t csPin);
 
-/*
- *
- * 寄存器和命令底层函数
- *
- */
+// 寄存器和命令底层函数
 HAL_StatusTypeDef ADS_Prog_Read(ADS8688 *ads, uint8_t addr, uint8_t *data);
 HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data);
 HAL_StatusTypeDef ADS_Cmd_Write(ADS8688 *ads, uint8_t cmd, uint8_t *data);
 
-/*
- *
- * 高级函数
- *
- */
-
+// 高级函数
 HAL_StatusTypeDef ADS_Read_All_Raw(ADS8688 *ads, uint16_t *data);
 
 #endif
