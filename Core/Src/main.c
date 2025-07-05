@@ -52,7 +52,7 @@ uint16_t ads_data[8];
 float voltage[8] = {0};
 
 // ADS8688参考电压定义（根据实际硬件电路设置）
-#define ADS8688_VREF 4.096f  // 参考电压为4.096V（典型值）
+#define ADS8688_VREF 4.096f  // 参考电压为4.096V（内部参考电压典型值）
 
 // 存储当前通道范围设置，用于正确的电压转换
 uint8_t current_channel_ranges[ADS8688_NUM_CHANNELS];
@@ -126,6 +126,7 @@ int main(void)
       current_channel_ranges[i] = channel_ranges[i];
   }
 
+  ADS8688_SetActiveChannels(&ads, 0b00000011); // 只采集通道0和1，提高采样率
   /* USER CODE END 2 */
 
   /* Infinite loop */

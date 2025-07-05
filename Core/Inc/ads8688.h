@@ -135,20 +135,20 @@ typedef struct
     uint16_t cs_pin;         // 片选引脚
 } ADS8688_HandleTypeDef;
 
-// 初始化函数
-uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hads, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin);
+uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hADS8568, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin);
 
-// 寄存器和命令底层函数
-HAL_StatusTypeDef ADS8688_ReadRegister(ADS8688_HandleTypeDef *hads, uint8_t reg, uint8_t *data);
-HAL_StatusTypeDef ADS8688_WriteRegister(ADS8688_HandleTypeDef *hads, uint8_t reg, uint8_t *data);
-HAL_StatusTypeDef ADS8688_SendCommand(ADS8688_HandleTypeDef *hads, uint8_t cmd, uint8_t *data);
+HAL_StatusTypeDef ADS8688_ReadRegister(ADS8688_HandleTypeDef *hADS8568, uint8_t reg, uint8_t *data);
+HAL_StatusTypeDef ADS8688_WriteRegister(ADS8688_HandleTypeDef *hADS8568, uint8_t reg, uint8_t *data);
+HAL_StatusTypeDef ADS8688_SendCommand(ADS8688_HandleTypeDef *hADS8568, uint8_t cmd, uint8_t *data);
 
-// 配置函数
-HAL_StatusTypeDef ADS8688_SetChannelRanges(ADS8688_HandleTypeDef *hads, uint8_t *channel_ranges);
-HAL_StatusTypeDef ADS8688_SetSingleChannelRange(ADS8688_HandleTypeDef *hads, uint8_t channel, uint8_t range);
+HAL_StatusTypeDef ADS8688_SetChannelRanges(ADS8688_HandleTypeDef *hADS8568, uint8_t *channel_ranges);
+HAL_StatusTypeDef ADS8688_SetSingleChannelRange(ADS8688_HandleTypeDef *hADS8568, uint8_t channel, uint8_t range);
 
-// 高级应用函数
-HAL_StatusTypeDef ADS8688_ReadAllChannelsRaw(ADS8688_HandleTypeDef *hads, uint16_t *data);
+HAL_StatusTypeDef ADS8688_ReadAllChannelsRaw(ADS8688_HandleTypeDef *hADS8568, uint16_t *data);
 float ADS8688_ConvertToVoltage(uint16_t raw_value, uint8_t range, float vref);
+
+HAL_StatusTypeDef ADS8688_SetActiveChannels(ADS8688_HandleTypeDef *hADS8568, uint8_t channel_mask);
+HAL_StatusTypeDef ADS8688_ReadActiveChannelsRaw(ADS8688_HandleTypeDef *hADS8568, uint16_t *data, uint8_t channel_mask);
+uint8_t ADS8688_GetActiveChannelCount(uint8_t channel_mask);
 
 #endif

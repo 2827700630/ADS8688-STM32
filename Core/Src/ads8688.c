@@ -20,7 +20,7 @@ uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hADS8688, SPI_HandleTypeDef *hspi, G
 
     // 重置所有寄存器为默认值
     status += ADS8688_SendCommand(hADS8688, ADS8688_CMD_RESET, reg_data);
-    HAL_Delay(1); //
+    HAL_Delay(1); 
 
     // 发送无操作命令使ADS进入空闲模式
     status += ADS8688_SendCommand(hADS8688, ADS8688_CMD_NO_OP, reg_data);
@@ -28,12 +28,10 @@ uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hADS8688, SPI_HandleTypeDef *hspi, G
 
     // 启用所有输入的自动扫描（数据手册第54页）
     // 如果只需要部分输入，请确保关闭未使用的通道
-    reg_data[0] = ADS8688_AUTO_SEQ_ALL_EN; // 启用所有8个通道
-    status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_AUTO_SEQ_EN, reg_data);
-    HAL_Delay(1);
+    ADS8688_SetActiveChannels(hADS8688, ADS8688_AUTO_SEQ_ALL_EN);
 
     // 设置所需功能，如设备ID（多设备时）、报警使能/禁用及输出格式
-    reg_data[0] = 0x03; // 此处选择id=0，报警禁用，SDO格式=3（数据手册第56页）
+    reg_data[0] = 0x03; // 此处选择id=0，报警禁用，SDO格式=3（数据手册Table 13）
     status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_FEATURE_SELECT, reg_data);
     HAL_Delay(1);
 
@@ -210,7 +208,7 @@ HAL_StatusTypeDef ADS8688_SetSingleChannelRange(ADS8688_HandleTypeDef *hADS8688,
     reg_data[0] = range;
 
     return ADS8688_WriteRegister(hADS8688, ADS8688_REG_CH0_RANGE + channel, reg_data);
-    
+
     // 进入自动扫描状态，开始自动采集
     ADS8688_SendCommand(hADS8688, ADS8688_CMD_AUTO_RST, reg_data);
 }
@@ -254,4 +252,93 @@ float ADS8688_ConvertToVoltage(uint16_t raw_value, uint8_t range, float vref)
     }
 
     return voltage;
+}
+
+/**
+ * @brief 设置活动的采集通道
+ * @param hADS8688 ADS8688句柄
+ * @param channel_mask 通道掩码，每个位对应一个通道 (bit0=CH0, bit1=CH1, ...)
+ * @retval HAL状态
+ * @note 通道掩码示例：
+ *       - 0b00000001 = 只采集通道0
+ *       - 0b00000010 = 只采集通道1
+ *       - 0b00000011 = 采集通道0和通道1
+ *       - 0b00001111 = 采集通道0-3
+ *       - ADS8688_AUTO_SEQ_ALL_EN = 采集所有通道
+ */
+HAL_StatusTypeDef ADS8688_SetActiveChannels(ADS8688_HandleTypeDef *hADS8688, uint8_t channel_mask)
+{
+    HAL_StatusTypeDef ret;
+    uint8_t reg_data[2];
+
+    // 将通道掩码写入自动扫描序列使能寄存器
+    reg_data[0] = channel_mask;
+    ret = ADS8688_WriteRegister(hADS8688, ADS8688_REG_AUTO_SEQ_EN, reg_data);
+
+    if (ret == HAL_OK)
+    {
+        // 发送AUTO_RST命令使配置生效
+        ADS8688_SendCommand(hADS8688, ADS8688_CMD_AUTO_RST, reg_data);
+    }
+
+    HAL_Delay(1); // 确保配置生效
+    return ret;
+}
+
+/**
+ * @brief 读取活动通道的原始数据
+ * @param hADS8688 ADS8688句柄
+ * @param data 存储活动通道原始数据的数组
+ * @param channel_mask 通道掩码，指定要读取的通道
+ * @retval HAL状态
+ * @note 数据数组的大小应该等于活动通道的数量
+ *       数据顺序按通道号从小到大排列
+ */
+HAL_StatusTypeDef ADS8688_ReadActiveChannelsRaw(ADS8688_HandleTypeDef *hADS8688, uint16_t *data, uint8_t channel_mask)
+{
+    HAL_StatusTypeDef ret = HAL_OK;
+    uint8_t raw_data[2];
+    uint8_t data_index = 0;
+
+    // 计算活动通道数量
+    uint8_t active_channels = ADS8688_GetActiveChannelCount(channel_mask);
+
+    // 按顺序读取活动通道的数据
+    for (uint8_t i = 0; i < active_channels; i++)
+    {
+        // 发送NO_OP命令并读取数据
+        ret = ADS8688_SendCommand(hADS8688, ADS8688_CMD_NO_OP, raw_data);
+        if (ret != HAL_OK)
+        {
+            break; // 如果发生错误则退出
+        }
+
+        // 将接收到的两个8位数据合并为一个16位数据
+        // ADS8688输出16位数据，MSB在前，LSB在后
+        data[data_index] = (uint16_t)(raw_data[1] << 8 | raw_data[0]);
+        data_index++;
+    }
+
+    return ret;
+}
+
+/**
+ * @brief 获取活动通道的数量
+ * @param channel_mask 通道掩码
+ * @retval 活动通道数量
+ */
+uint8_t ADS8688_GetActiveChannelCount(uint8_t channel_mask)
+{
+    uint8_t count = 0;
+
+    // 计算掩码中设置为1的位数
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        if (channel_mask & (1 << i))
+        {
+            count++;
+        }
+    }
+
+    return count;
 }
