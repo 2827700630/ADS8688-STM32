@@ -48,7 +48,7 @@
 
 // ADS变量
 ADS8688_HandleTypeDef ads; // 这个设计对一个STM32接入多个ADS8688友好
-uint16_t ads_data[8];
+uint16_t ads_data[8]={0};
 float voltage[8] = {0};
 
 // ADS8688参考电压定义（根据实际硬件电路设置）
