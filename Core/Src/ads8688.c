@@ -28,7 +28,7 @@ uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hADS8688, SPI_HandleTypeDef *hspi, G
     
     // 启用所有输入的自动扫描（数据手册第54页）
     // 如果只需要部分输入，请确保关闭未使用的通道
-    reg_data[0] = 0xFF;  // 启用所有8个通道
+    reg_data[0] = ADS8688_AUTO_SEQ_ALL_EN;  // 启用所有8个通道
     status += ADS8688_WriteRegister(hADS8688, ADS8688_REG_AUTO_SEQ_EN, reg_data);
     HAL_Delay(10);
     
