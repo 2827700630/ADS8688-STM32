@@ -44,13 +44,12 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-//SPI_HandleTypeDef hspi1;
+// SPI_HandleTypeDef hspi1;
 
 // ADS变量
-ADS8688_HandleTypeDef ads;
+ADS8688_HandleTypeDef ads; // 这个设计对一个STM32接入多个ADS8688友好
 uint16_t ads_data[8];
-float volt_helper = 0;
-int volt[8] = {0};
+float voltage[8] = {0};
 // 根据ADS8688_Init中的设置，定义每个通道的电压量程（单位：V）
 const float channel_voltage_ranges[8] = {
     5.12,  // CH0: 0 to 1.25 x VREF (VREF = 4.096V)
@@ -120,7 +119,7 @@ int main(void)
     for (int i = 0; i < 8; i++)
     {
       // 使用16位分辨率（65535）和对应通道的正确电压范围进行计算
-      volt_helper = ((float)ads_data[i] / 65535.0) * channel_voltage_ranges[i];
+      voltage[i] = ((float)ads_data[i] / 65535.0) * channel_voltage_ranges[i];
     }
     /* USER CODE END WHILE */
 

@@ -35,17 +35,17 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  15 .debug_rnglists 00000481  00000000  00000000  0000b1d0  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_macro  0001642f  00000000  00000000  0000b651  2**0
+ 16 .debug_macro  00016447  00000000  00000000  0000b651  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .debug_line   00007c88  00000000  00000000  00021a80  2**0
+ 17 .debug_line   00007c87  00000000  00000000  00021a98  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    0007dd4d  00000000  00000000  00029708  2**0
+ 18 .debug_str    0007df3c  00000000  00000000  0002971f  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  000a7455  2**0
+ 19 .comment      00000043  00000000  00000000  000a765b  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  0000180c  00000000  00000000  000a7498  2**2
+ 20 .debug_frame  0000180c  00000000  00000000  000a76a0  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 00000052  00000000  00000000  000a8ca4  2**0
+ 21 .debug_line_str 00000052  00000000  00000000  000a8eac  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -951,11 +951,11 @@ Disassembly of section .text:
  8000ba6:	4770      	bx	lr
 
 08000ba8 <ADS8688_Init>:
-
-/*
- * 初始化
+ *   cs_port: 片选端口
+ *   cs_pin: 片选引脚
+ * 返回值：错误状态累计值
  */
-uint8_t ADS8688_Init(ADS8688 *ads, SPI_HandleTypeDef *spiHandle, GPIO_TypeDef *csPinBank, uint16_t csPin)
+uint8_t ADS8688_Init(ADS8688_HandleTypeDef *hads, SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin)
 {
  8000ba8:	b580      	push	{r7, lr}
  8000baa:	b086      	sub	sp, #24
@@ -964,246 +964,259 @@ uint8_t ADS8688_Init(ADS8688 *ads, SPI_HandleTypeDef *spiHandle, GPIO_TypeDef *c
  8000bb0:	60b9      	str	r1, [r7, #8]
  8000bb2:	607a      	str	r2, [r7, #4]
  8000bb4:	807b      	strh	r3, [r7, #2]
-    /* 在结构体中存储接口参数 */
-    ads->spiHandle = spiHandle;
+    // 将接口参数存储到结构体中
+    hads->hspi = hspi;
  8000bb6:	68fb      	ldr	r3, [r7, #12]
  8000bb8:	68ba      	ldr	r2, [r7, #8]
  8000bba:	601a      	str	r2, [r3, #0]
-    ads->csPinBank = csPinBank;
+    hads->cs_port = cs_port;
  8000bbc:	68fb      	ldr	r3, [r7, #12]
  8000bbe:	687a      	ldr	r2, [r7, #4]
  8000bc0:	605a      	str	r2, [r3, #4]
-    ads->csPin = csPin;
+    hads->cs_pin = cs_pin;
  8000bc2:	68fb      	ldr	r3, [r7, #12]
  8000bc4:	887a      	ldrh	r2, [r7, #2]
  8000bc6:	811a      	strh	r2, [r3, #8]
 
-    uint8_t ads_data[2] = {0};
+    uint8_t reg_data[2] = {0};
  8000bc8:	2300      	movs	r3, #0
  8000bca:	82bb      	strh	r3, [r7, #20]
-    uint8_t state = 0;
+    uint8_t status = 0;
  8000bcc:	2300      	movs	r3, #0
  8000bce:	75fb      	strb	r3, [r7, #23]
+    
     // 重置所有寄存器为默认值
-    state += ADS_Cmd_Write(ads, RST, ads_data);
+    status += ADS8688_SendCommand(hads, ADS8688_CMD_RESET, reg_data);
  8000bd0:	f107 0314 	add.w	r3, r7, #20
  8000bd4:	461a      	mov	r2, r3
  8000bd6:	2185      	movs	r1, #133	@ 0x85
  8000bd8:	68f8      	ldr	r0, [r7, #12]
- 8000bda:	f000 f90e 	bl	8000dfa <ADS_Cmd_Write>
+ 8000bda:	f000 f90e 	bl	8000dfa <ADS8688_SendCommand>
  8000bde:	4603      	mov	r3, r0
  8000be0:	461a      	mov	r2, r3
  8000be2:	7dfb      	ldrb	r3, [r7, #23]
  8000be4:	4413      	add	r3, r2
  8000be6:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1); // 复位后需要短暂延时
- 8000be8:	2001      	movs	r0, #1
+    HAL_Delay(100);  // 复位后需要较长延时
+ 8000be8:	2064      	movs	r0, #100	@ 0x64
  8000bea:	f000 fbf3 	bl	80013d4 <HAL_Delay>
-    // 向ADS发送无操作消息以进入空闲模式
-    state += ADS_Cmd_Write(ads, CONT, ads_data);
+    
+    // 发送无操作命令使ADS进入空闲模式
+    status += ADS8688_SendCommand(hads, ADS8688_CMD_CONT, reg_data);
  8000bee:	f107 0314 	add.w	r3, r7, #20
  8000bf2:	461a      	mov	r2, r3
  8000bf4:	2100      	movs	r1, #0
  8000bf6:	68f8      	ldr	r0, [r7, #12]
- 8000bf8:	f000 f8ff 	bl	8000dfa <ADS_Cmd_Write>
+ 8000bf8:	f000 f8ff 	bl	8000dfa <ADS8688_SendCommand>
  8000bfc:	4603      	mov	r3, r0
  8000bfe:	461a      	mov	r2, r3
  8000c00:	7dfb      	ldrb	r3, [r7, #23]
  8000c02:	4413      	add	r3, r2
  8000c04:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000c06:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000c06:	200a      	movs	r0, #10
  8000c08:	f000 fbe4 	bl	80013d4 <HAL_Delay>
-    // 为所有输入启用自动传输（数据手册第54页）或者根据需要启用
-    // 如果只想启用部分输入，请确保关闭未使用的输入
-    ads_data[0] = 0xff;
+    
+    // 启用所有输入的自动扫描（数据手册第54页）
+    // 如果只需要部分输入，请确保关闭未使用的通道
+    reg_data[0] = 0xFF;  // 启用所有8个通道
  8000c0c:	23ff      	movs	r3, #255	@ 0xff
  8000c0e:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, AUTO_SEQ_EN, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_AUTO_SEQ_EN, reg_data);
  8000c10:	f107 0314 	add.w	r3, r7, #20
  8000c14:	461a      	mov	r2, r3
  8000c16:	2101      	movs	r1, #1
  8000c18:	68f8      	ldr	r0, [r7, #12]
- 8000c1a:	f000 f8b2 	bl	8000d82 <ADS_Prog_Write>
+ 8000c1a:	f000 f8b2 	bl	8000d82 <ADS8688_WriteRegister>
  8000c1e:	4603      	mov	r3, r0
  8000c20:	461a      	mov	r2, r3
  8000c22:	7dfb      	ldrb	r3, [r7, #23]
  8000c24:	4413      	add	r3, r2
  8000c26:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000c28:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000c28:	200a      	movs	r0, #10
  8000c2a:	f000 fbd3 	bl	80013d4 <HAL_Delay>
-    // 设置所需的功能，如设备ID（如果使用多个设备）、报警启用/禁用和输出格式
-    ads_data[0] = 0x03; // 这里我选择了id = 0，报警 = 禁用，SDO_格式 = 3（数据手册第56页）
+    
+    // 设置所需功能，如设备ID（多设备时）、报警使能/禁用及输出格式
+    reg_data[0] = 0x03;  // 此处选择id=0，报警禁用，SDO格式=3（数据手册第56页）
  8000c2e:	2303      	movs	r3, #3
  8000c30:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, FEATURE_SELECT, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_FEATURE_SELECT, reg_data);
  8000c32:	f107 0314 	add.w	r3, r7, #20
  8000c36:	461a      	mov	r2, r3
  8000c38:	2103      	movs	r1, #3
  8000c3a:	68f8      	ldr	r0, [r7, #12]
- 8000c3c:	f000 f8a1 	bl	8000d82 <ADS_Prog_Write>
+ 8000c3c:	f000 f8a1 	bl	8000d82 <ADS8688_WriteRegister>
  8000c40:	4603      	mov	r3, r0
  8000c42:	461a      	mov	r2, r3
  8000c44:	7dfb      	ldrb	r3, [r7, #23]
  8000c46:	4413      	add	r3, r2
  8000c48:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000c4a:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000c4a:	200a      	movs	r0, #10
  8000c4c:	f000 fbc2 	bl	80013d4 <HAL_Delay>
-    // 设置所有通道范围（第57页）
-    // 0x05 -> 输入范围设置为0到2.5倍VREF（对于VREF=4.096V，这意味着0-10.24伏范围）
-    // 0x06 -> 输入范围设置为0到1.25倍VREF（对于VREF=4.096V，这意味着0-5.12伏范围）
-    ads_data[0] = 0x06;
+    
+    // 设置所有通道输入范围（数据手册第57页）
+    // 0x05 -> 输入范围为0到2.5倍VREF（VREF=4.096V时为0-10.24V）
+    // 0x06 -> 输入范围为0到1.25倍VREF（VREF=4.096V时为0-5.12V）
+    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
  8000c50:	2306      	movs	r3, #6
  8000c52:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_0_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH0_RANGE, reg_data);
  8000c54:	f107 0314 	add.w	r3, r7, #20
  8000c58:	461a      	mov	r2, r3
  8000c5a:	2105      	movs	r1, #5
  8000c5c:	68f8      	ldr	r0, [r7, #12]
- 8000c5e:	f000 f890 	bl	8000d82 <ADS_Prog_Write>
+ 8000c5e:	f000 f890 	bl	8000d82 <ADS8688_WriteRegister>
  8000c62:	4603      	mov	r3, r0
  8000c64:	461a      	mov	r2, r3
  8000c66:	7dfb      	ldrb	r3, [r7, #23]
  8000c68:	4413      	add	r3, r2
  8000c6a:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000c6c:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000c6c:	200a      	movs	r0, #10
  8000c6e:	f000 fbb1 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x06;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
  8000c72:	2306      	movs	r3, #6
  8000c74:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_1_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH1_RANGE, reg_data);
  8000c76:	f107 0314 	add.w	r3, r7, #20
  8000c7a:	461a      	mov	r2, r3
  8000c7c:	2106      	movs	r1, #6
  8000c7e:	68f8      	ldr	r0, [r7, #12]
- 8000c80:	f000 f87f 	bl	8000d82 <ADS_Prog_Write>
+ 8000c80:	f000 f87f 	bl	8000d82 <ADS8688_WriteRegister>
  8000c84:	4603      	mov	r3, r0
  8000c86:	461a      	mov	r2, r3
  8000c88:	7dfb      	ldrb	r3, [r7, #23]
  8000c8a:	4413      	add	r3, r2
  8000c8c:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000c8e:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000c8e:	200a      	movs	r0, #10
  8000c90:	f000 fba0 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x05;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
  8000c94:	2305      	movs	r3, #5
  8000c96:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_2_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH2_RANGE, reg_data);
  8000c98:	f107 0314 	add.w	r3, r7, #20
  8000c9c:	461a      	mov	r2, r3
  8000c9e:	2107      	movs	r1, #7
  8000ca0:	68f8      	ldr	r0, [r7, #12]
- 8000ca2:	f000 f86e 	bl	8000d82 <ADS_Prog_Write>
+ 8000ca2:	f000 f86e 	bl	8000d82 <ADS8688_WriteRegister>
  8000ca6:	4603      	mov	r3, r0
  8000ca8:	461a      	mov	r2, r3
  8000caa:	7dfb      	ldrb	r3, [r7, #23]
  8000cac:	4413      	add	r3, r2
  8000cae:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000cb0:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000cb0:	200a      	movs	r0, #10
  8000cb2:	f000 fb8f 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x05;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
  8000cb6:	2305      	movs	r3, #5
  8000cb8:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_3_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH3_RANGE, reg_data);
  8000cba:	f107 0314 	add.w	r3, r7, #20
  8000cbe:	461a      	mov	r2, r3
  8000cc0:	2108      	movs	r1, #8
  8000cc2:	68f8      	ldr	r0, [r7, #12]
- 8000cc4:	f000 f85d 	bl	8000d82 <ADS_Prog_Write>
+ 8000cc4:	f000 f85d 	bl	8000d82 <ADS8688_WriteRegister>
  8000cc8:	4603      	mov	r3, r0
  8000cca:	461a      	mov	r2, r3
  8000ccc:	7dfb      	ldrb	r3, [r7, #23]
  8000cce:	4413      	add	r3, r2
  8000cd0:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000cd2:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000cd2:	200a      	movs	r0, #10
  8000cd4:	f000 fb7e 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x05;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
  8000cd8:	2305      	movs	r3, #5
  8000cda:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_4_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH4_RANGE, reg_data);
  8000cdc:	f107 0314 	add.w	r3, r7, #20
  8000ce0:	461a      	mov	r2, r3
  8000ce2:	2109      	movs	r1, #9
  8000ce4:	68f8      	ldr	r0, [r7, #12]
- 8000ce6:	f000 f84c 	bl	8000d82 <ADS_Prog_Write>
+ 8000ce6:	f000 f84c 	bl	8000d82 <ADS8688_WriteRegister>
  8000cea:	4603      	mov	r3, r0
  8000cec:	461a      	mov	r2, r3
  8000cee:	7dfb      	ldrb	r3, [r7, #23]
  8000cf0:	4413      	add	r3, r2
  8000cf2:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000cf4:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000cf4:	200a      	movs	r0, #10
  8000cf6:	f000 fb6d 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x05;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_10_24V;
  8000cfa:	2305      	movs	r3, #5
  8000cfc:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_5_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH5_RANGE, reg_data);
  8000cfe:	f107 0314 	add.w	r3, r7, #20
  8000d02:	461a      	mov	r2, r3
  8000d04:	210a      	movs	r1, #10
  8000d06:	68f8      	ldr	r0, [r7, #12]
- 8000d08:	f000 f83b 	bl	8000d82 <ADS_Prog_Write>
+ 8000d08:	f000 f83b 	bl	8000d82 <ADS8688_WriteRegister>
  8000d0c:	4603      	mov	r3, r0
  8000d0e:	461a      	mov	r2, r3
  8000d10:	7dfb      	ldrb	r3, [r7, #23]
  8000d12:	4413      	add	r3, r2
  8000d14:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000d16:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000d16:	200a      	movs	r0, #10
  8000d18:	f000 fb5c 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x06;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
  8000d1c:	2306      	movs	r3, #6
  8000d1e:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_6_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH6_RANGE, reg_data);
  8000d20:	f107 0314 	add.w	r3, r7, #20
  8000d24:	461a      	mov	r2, r3
  8000d26:	210b      	movs	r1, #11
  8000d28:	68f8      	ldr	r0, [r7, #12]
- 8000d2a:	f000 f82a 	bl	8000d82 <ADS_Prog_Write>
+ 8000d2a:	f000 f82a 	bl	8000d82 <ADS8688_WriteRegister>
  8000d2e:	4603      	mov	r3, r0
  8000d30:	461a      	mov	r2, r3
  8000d32:	7dfb      	ldrb	r3, [r7, #23]
  8000d34:	4413      	add	r3, r2
  8000d36:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000d38:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000d38:	200a      	movs	r0, #10
  8000d3a:	f000 fb4b 	bl	80013d4 <HAL_Delay>
-    ads_data[0] = 0x06;
+    
+    reg_data[0] = ADS8688_RANGE_0_TO_5_12V;
  8000d3e:	2306      	movs	r3, #6
  8000d40:	753b      	strb	r3, [r7, #20]
-    state += ADS_Prog_Write(ads, CHN_7_RANGE, ads_data);
+    status += ADS8688_WriteRegister(hads, ADS8688_REG_CH7_RANGE, reg_data);
  8000d42:	f107 0314 	add.w	r3, r7, #20
  8000d46:	461a      	mov	r2, r3
  8000d48:	210c      	movs	r1, #12
  8000d4a:	68f8      	ldr	r0, [r7, #12]
- 8000d4c:	f000 f819 	bl	8000d82 <ADS_Prog_Write>
+ 8000d4c:	f000 f819 	bl	8000d82 <ADS8688_WriteRegister>
  8000d50:	4603      	mov	r3, r0
  8000d52:	461a      	mov	r2, r3
  8000d54:	7dfb      	ldrb	r3, [r7, #23]
  8000d56:	4413      	add	r3, r2
  8000d58:	75fb      	strb	r3, [r7, #23]
-    HAL_Delay(1);
- 8000d5a:	2001      	movs	r0, #1
+    HAL_Delay(10);
+ 8000d5a:	200a      	movs	r0, #10
  8000d5c:	f000 fb3a 	bl	80013d4 <HAL_Delay>
-    // 通过进入适当的状态启动自动传输
-    state += ADS_Cmd_Write(ads, AUTO_RST, ads_data);
+    
+    // 进入自动扫描状态，开始自动采集
+    status += ADS8688_SendCommand(hads, ADS8688_CMD_AUTO_RST, reg_data);
  8000d60:	f107 0314 	add.w	r3, r7, #20
  8000d64:	461a      	mov	r2, r3
  8000d66:	21a0      	movs	r1, #160	@ 0xa0
  8000d68:	68f8      	ldr	r0, [r7, #12]
- 8000d6a:	f000 f846 	bl	8000dfa <ADS_Cmd_Write>
+ 8000d6a:	f000 f846 	bl	8000dfa <ADS8688_SendCommand>
  8000d6e:	4603      	mov	r3, r0
  8000d70:	461a      	mov	r2, r3
  8000d72:	7dfb      	ldrb	r3, [r7, #23]
  8000d74:	4413      	add	r3, r2
  8000d76:	75fb      	strb	r3, [r7, #23]
 
-    return state;
+    return status;
  8000d78:	7dfb      	ldrb	r3, [r7, #23]
 }
  8000d7a:	4618      	mov	r0, r3
@@ -1211,12 +1224,12 @@ uint8_t ADS8688_Init(ADS8688 *ads, SPI_HandleTypeDef *spiHandle, GPIO_TypeDef *c
  8000d7e:	46bd      	mov	sp, r7
  8000d80:	bd80      	pop	{r7, pc}
 
-08000d82 <ADS_Prog_Write>:
-    return ret;
-}
-
-// 写入后，data应该包含写入指定寄存器的数据（字节）（检查等式以进行评估）
-HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data)
+08000d82 <ADS8688_WriteRegister>:
+ *   data: 要写入的数据
+ * 返回值：HAL状态
+ * 说明：写入后，data应包含写入指定寄存器的数据（字节）（可用于校验）
+ */
+HAL_StatusTypeDef ADS8688_WriteRegister(ADS8688_HandleTypeDef *hads, uint8_t reg, uint8_t *data)
 {
  8000d82:	b580      	push	{r7, lr}
  8000d84:	b088      	sub	sp, #32
@@ -1226,7 +1239,8 @@ HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data)
  8000d8c:	607a      	str	r2, [r7, #4]
  8000d8e:	72fb      	strb	r3, [r7, #11]
     HAL_StatusTypeDef ret;
-    uint8_t txbuf[2] = {data[0], (addr << 1 | 0x01)}; // [15:9]->地址[6:0], [8]->1, [7:0]->数据[7:0]（stm32使用小端序所以需要反转）
+    // [15:9]->地址[6:0], [8]->1, [7:0]->数据[7:0]（STM32为小端序需反转）
+    uint8_t txbuf[2] = {data[0], (reg << 1 | 0x01)};
  8000d90:	687b      	ldr	r3, [r7, #4]
  8000d92:	781b      	ldrb	r3, [r3, #0]
  8000d94:	753b      	strb	r3, [r7, #20]
@@ -1239,7 +1253,7 @@ HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data)
  8000da6:	757b      	strb	r3, [r7, #21]
     uint8_t rxbuf[4];
 
-    HAL_GPIO_WritePin(ads->csPinBank, ads->csPin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(hads->cs_port, hads->cs_pin, GPIO_PIN_RESET);
  8000da8:	68fb      	ldr	r3, [r7, #12]
  8000daa:	6858      	ldr	r0, [r3, #4]
  8000dac:	68fb      	ldr	r3, [r7, #12]
@@ -1247,7 +1261,7 @@ HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data)
  8000db0:	2200      	movs	r2, #0
  8000db2:	4619      	mov	r1, r3
  8000db4:	f000 fd9a 	bl	80018ec <HAL_GPIO_WritePin>
-    ret = HAL_SPI_TransmitReceive(ads->spiHandle, txbuf, rxbuf, 2, 10);
+    ret = HAL_SPI_TransmitReceive(hads->hspi, txbuf, rxbuf, 2, 10);
  8000db8:	68fb      	ldr	r3, [r7, #12]
  8000dba:	6818      	ldr	r0, [r3, #0]
  8000dbc:	f107 0210 	add.w	r2, r7, #16
@@ -1258,7 +1272,7 @@ HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data)
  8000dca:	f001 fa09 	bl	80021e0 <HAL_SPI_TransmitReceive>
  8000dce:	4603      	mov	r3, r0
  8000dd0:	75fb      	strb	r3, [r7, #23]
-    HAL_GPIO_WritePin(ads->csPinBank, ads->csPin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hads->cs_port, hads->cs_pin, GPIO_PIN_SET);
  8000dd2:	68fb      	ldr	r3, [r7, #12]
  8000dd4:	6858      	ldr	r0, [r3, #4]
  8000dd6:	68fb      	ldr	r3, [r7, #12]
@@ -1284,9 +1298,12 @@ HAL_StatusTypeDef ADS_Prog_Write(ADS8688 *ads, uint8_t addr, uint8_t *data)
  8000df6:	46bd      	mov	sp, r7
  8000df8:	bd80      	pop	{r7, pc}
 
-08000dfa <ADS_Cmd_Write>:
-
-HAL_StatusTypeDef ADS_Cmd_Write(ADS8688 *ads, uint8_t cmd, uint8_t *data)
+08000dfa <ADS8688_SendCommand>:
+ *   cmd: 命令字节
+ *   data: 存储返回数据的缓冲区
+ * 返回值：HAL状态
+ */
+HAL_StatusTypeDef ADS8688_SendCommand(ADS8688_HandleTypeDef *hads, uint8_t cmd, uint8_t *data)
 {
  8000dfa:	b580      	push	{r7, lr}
  8000dfc:	b088      	sub	sp, #32
@@ -1296,14 +1313,15 @@ HAL_StatusTypeDef ADS_Cmd_Write(ADS8688 *ads, uint8_t cmd, uint8_t *data)
  8000e04:	607a      	str	r2, [r7, #4]
  8000e06:	72fb      	strb	r3, [r7, #11]
     HAL_StatusTypeDef ret;
-    uint8_t txbuf[2] = {0x00, cmd}; // [15:8]为命令, [7:0]为0x00
+    // [15:8]为命令, [7:0]为0x00
+    uint8_t txbuf[2] = {0x00, cmd};
  8000e08:	2300      	movs	r3, #0
  8000e0a:	753b      	strb	r3, [r7, #20]
  8000e0c:	7afb      	ldrb	r3, [r7, #11]
  8000e0e:	757b      	strb	r3, [r7, #21]
-    uint8_t rxbuf[4];               // 恢复为4字节缓冲区
+    uint8_t rxbuf[4];
 
-    HAL_GPIO_WritePin(ads->csPinBank, ads->csPin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(hads->cs_port, hads->cs_pin, GPIO_PIN_RESET);
  8000e10:	68fb      	ldr	r3, [r7, #12]
  8000e12:	6858      	ldr	r0, [r3, #4]
  8000e14:	68fb      	ldr	r3, [r7, #12]
@@ -1311,8 +1329,7 @@ HAL_StatusTypeDef ADS_Cmd_Write(ADS8688 *ads, uint8_t cmd, uint8_t *data)
  8000e18:	2200      	movs	r2, #0
  8000e1a:	4619      	mov	r1, r3
  8000e1c:	f000 fd66 	bl	80018ec <HAL_GPIO_WritePin>
-    // 注意：Size参数为2，表示传输2个16位的数据，总共4个字节
-    ret = HAL_SPI_TransmitReceive(ads->spiHandle, txbuf, rxbuf, 2, 10);
+    ret = HAL_SPI_TransmitReceive(hads->hspi, txbuf, rxbuf, 2, 10);
  8000e20:	68fb      	ldr	r3, [r7, #12]
  8000e22:	6818      	ldr	r0, [r3, #0]
  8000e24:	f107 0210 	add.w	r2, r7, #16
@@ -1323,7 +1340,7 @@ HAL_StatusTypeDef ADS_Cmd_Write(ADS8688 *ads, uint8_t cmd, uint8_t *data)
  8000e32:	f001 f9d5 	bl	80021e0 <HAL_SPI_TransmitReceive>
  8000e36:	4603      	mov	r3, r0
  8000e38:	75fb      	strb	r3, [r7, #23]
-    HAL_GPIO_WritePin(ads->csPinBank, ads->csPin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hads->cs_port, hads->cs_pin, GPIO_PIN_SET);
  8000e3a:	68fb      	ldr	r3, [r7, #12]
  8000e3c:	6858      	ldr	r0, [r3, #4]
  8000e3e:	68fb      	ldr	r3, [r7, #12]
@@ -1350,68 +1367,73 @@ HAL_StatusTypeDef ADS_Cmd_Write(ADS8688 *ads, uint8_t cmd, uint8_t *data)
  8000e5e:	46bd      	mov	sp, r7
  8000e60:	bd80      	pop	{r7, pc}
 
-08000e62 <ADS_Read_All_Raw>:
-
-HAL_StatusTypeDef ADS_Read_All_Raw(ADS8688 *ads, uint16_t *data)
+08000e62 <ADS8688_ReadAllChannelsRaw>:
+ *   data: 存储8个通道原始数据的数组
+ * 返回值：HAL状态
+ * 说明：循环读取所有通道的16位原始ADC数据，并进行右移4位处理
+ */
+HAL_StatusTypeDef ADS8688_ReadAllChannelsRaw(ADS8688_HandleTypeDef *hads, uint16_t *data)
 {
  8000e62:	b580      	push	{r7, lr}
  8000e64:	b086      	sub	sp, #24
  8000e66:	af00      	add	r7, sp, #0
  8000e68:	6078      	str	r0, [r7, #4]
  8000e6a:	6039      	str	r1, [r7, #0]
-    HAL_StatusTypeDef ret = HAL_OK;
+    HAL_StatusTypeDef ret;
+    uint8_t raw_data[2];
+    
+    for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
  8000e6c:	2300      	movs	r3, #0
- 8000e6e:	75fb      	strb	r3, [r7, #23]
-    uint8_t ads_raw[2];
-
-    for (int i = 0; i < CHNS_NUM_READ; i++)
- 8000e70:	2300      	movs	r3, #0
- 8000e72:	613b      	str	r3, [r7, #16]
- 8000e74:	e01c      	b.n	8000eb0 <ADS_Read_All_Raw+0x4e>
+ 8000e6e:	613b      	str	r3, [r7, #16]
+ 8000e70:	e01e      	b.n	8000eb0 <ADS8688_ReadAllChannelsRaw+0x4e>
     {
-        // 恢复调用ADS_Cmd_Write来发送NO_OP命令并读取数据
-        ret = ADS_Cmd_Write(ads, CONT, ads_raw);
- 8000e76:	f107 030c 	add.w	r3, r7, #12
- 8000e7a:	461a      	mov	r2, r3
- 8000e7c:	2100      	movs	r1, #0
- 8000e7e:	6878      	ldr	r0, [r7, #4]
- 8000e80:	f7ff ffbb 	bl	8000dfa <ADS_Cmd_Write>
- 8000e84:	4603      	mov	r3, r0
- 8000e86:	75fb      	strb	r3, [r7, #23]
+        // 发送无操作命令并读取数据
+        ret = ADS8688_SendCommand(hads, ADS8688_CMD_CONT, raw_data);
+ 8000e72:	f107 030c 	add.w	r3, r7, #12
+ 8000e76:	461a      	mov	r2, r3
+ 8000e78:	2100      	movs	r1, #0
+ 8000e7a:	6878      	ldr	r0, [r7, #4]
+ 8000e7c:	f7ff ffbd 	bl	8000dfa <ADS8688_SendCommand>
+ 8000e80:	4603      	mov	r3, r0
+ 8000e82:	75fb      	strb	r3, [r7, #23]
         if (ret != HAL_OK)
- 8000e88:	7dfb      	ldrb	r3, [r7, #23]
- 8000e8a:	2b00      	cmp	r3, #0
- 8000e8c:	d114      	bne.n	8000eb8 <ADS_Read_All_Raw+0x56>
-        {
-            break; // 如果发生错误则退出
+ 8000e84:	7dfb      	ldrb	r3, [r7, #23]
+ 8000e86:	2b00      	cmp	r3, #0
+ 8000e88:	d116      	bne.n	8000eb8 <ADS8688_ReadAllChannelsRaw+0x56>
+            break;  // 如果发生错误则退出
         }
-        // 将接收到的2个8位数据合并为1个16位数据，并修正字节序
-        data[i] = (uint16_t)(ads_raw[1] << 8 | ads_raw[0]);
- 8000e8e:	7b7b      	ldrb	r3, [r7, #13]
- 8000e90:	b21b      	sxth	r3, r3
- 8000e92:	021b      	lsls	r3, r3, #8
- 8000e94:	b21a      	sxth	r2, r3
- 8000e96:	7b3b      	ldrb	r3, [r7, #12]
+        
+        // 将接收到的两个8位数据合并为一个16位数据，并右移4位
+        // ADS8688输出16位数据，但有效数据在高12位
+        data[i] = (int)((uint16_t)(raw_data[1] << 8 | raw_data[0]) >> 4);
+ 8000e8a:	7b7b      	ldrb	r3, [r7, #13]
+ 8000e8c:	b21b      	sxth	r3, r3
+ 8000e8e:	021b      	lsls	r3, r3, #8
+ 8000e90:	b21a      	sxth	r2, r3
+ 8000e92:	7b3b      	ldrb	r3, [r7, #12]
+ 8000e94:	b21b      	sxth	r3, r3
+ 8000e96:	4313      	orrs	r3, r2
  8000e98:	b21b      	sxth	r3, r3
- 8000e9a:	4313      	orrs	r3, r2
- 8000e9c:	b219      	sxth	r1, r3
- 8000e9e:	693b      	ldr	r3, [r7, #16]
- 8000ea0:	005b      	lsls	r3, r3, #1
- 8000ea2:	683a      	ldr	r2, [r7, #0]
- 8000ea4:	4413      	add	r3, r2
- 8000ea6:	b28a      	uxth	r2, r1
+ 8000e9a:	b29a      	uxth	r2, r3
+ 8000e9c:	693b      	ldr	r3, [r7, #16]
+ 8000e9e:	005b      	lsls	r3, r3, #1
+ 8000ea0:	6839      	ldr	r1, [r7, #0]
+ 8000ea2:	440b      	add	r3, r1
+ 8000ea4:	0912      	lsrs	r2, r2, #4
+ 8000ea6:	b292      	uxth	r2, r2
  8000ea8:	801a      	strh	r2, [r3, #0]
-    for (int i = 0; i < CHNS_NUM_READ; i++)
+    for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
  8000eaa:	693b      	ldr	r3, [r7, #16]
  8000eac:	3301      	adds	r3, #1
  8000eae:	613b      	str	r3, [r7, #16]
  8000eb0:	693b      	ldr	r3, [r7, #16]
  8000eb2:	2b07      	cmp	r3, #7
- 8000eb4:	dddf      	ble.n	8000e76 <ADS_Read_All_Raw+0x14>
- 8000eb6:	e000      	b.n	8000eba <ADS_Read_All_Raw+0x58>
-            break; // 如果发生错误则退出
+ 8000eb4:	dddd      	ble.n	8000e72 <ADS8688_ReadAllChannelsRaw+0x10>
+ 8000eb6:	e000      	b.n	8000eba <ADS8688_ReadAllChannelsRaw+0x58>
+            break;  // 如果发生错误则退出
  8000eb8:	bf00      	nop
     }
+    
     return ret;
  8000eba:	7dfb      	ldrb	r3, [r7, #23]
 }
@@ -1597,10 +1619,10 @@ int main(void)
   while (1)
   {
 
-    ADS_Read_All_Raw(&ads, ads_data);
+    ADS8688_ReadAllChannelsRaw(&ads, ads_data);
  8000fcc:	4921      	ldr	r1, [pc, #132]	@ (8001054 <main+0xb4>)
  8000fce:	4820      	ldr	r0, [pc, #128]	@ (8001050 <main+0xb0>)
- 8000fd0:	f7ff ff47 	bl	8000e62 <ADS_Read_All_Raw>
+ 8000fd0:	f7ff ff47 	bl	8000e62 <ADS8688_ReadAllChannelsRaw>
     for (int i = 0; i < 8; i++)
  8000fd4:	2300      	movs	r3, #0
  8000fd6:	607b      	str	r3, [r7, #4]
@@ -1648,7 +1670,7 @@ int main(void)
  8001034:	687b      	ldr	r3, [r7, #4]
  8001036:	2b07      	cmp	r3, #7
  8001038:	ddcf      	ble.n	8000fda <main+0x3a>
-    ADS_Read_All_Raw(&ads, ads_data);
+    ADS8688_ReadAllChannelsRaw(&ads, ads_data);
  800103a:	e7c7      	b.n	8000fcc <main+0x2c>
  800103c:	f3af 8000 	nop.w
  8001040:	00000000 	.word	0x00000000
