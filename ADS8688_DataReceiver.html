@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADS8688 数据接收器 - 实时监控</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 10px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .controls,
+        .status,
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .control-group,
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .status {
+            gap: 10px;
+            font-size: 0.95em;
+            background: #f8f9fa;
+            padding: 4px 0;
+        }
+
+        .status-value {
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .chart-container {
+            margin-bottom: 10px;
+            height: 300px;
+        }
+
+        #dataInput {
+            width: 100%;
+            height: 120px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        button {
+            background: #007bff;
+            color: #fff;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 6px;
+            margin-bottom: 8px;
+            border-radius: 3px;
+            font-size: 0.95em;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .tabs {
+            margin-bottom: 8px;
+        }
+
+        .tab {
+            padding: 6px 12px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            margin-right: 2px;
+            border-radius: 3px 3px 0 0;
+            font-size: 0.98em;
+        }
+
+        .tab.active {
+            background: #fff;
+            border-bottom: 1px solid #fff;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .data-table {
+            max-height: 180px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.97em;
+        }
+
+        th,
+        td {
+            padding: 4px;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+        }
+
+        .channel-selector {
+            margin-bottom: 4px;
+        }
+
+        .channel-selector label {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 ADS8688 数据接收器</h1>
+            <p>实时监控采样数据，验证采样率和数据完整性</p>
+            <p style="font-size: 0.9em; color: #666;">⚡ 性能优化版本 - 最多存储1200个数据点，无动画效果</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="serialPort">串口:</label>
+                <button id="connectBtn">连接串口</button>
+                <button id="disconnectBtn" disabled>断开连接</button>
+            </div>
+            <div class="control-group">
+                <button id="clearBtn">清空数据</button>
+                <button id="exportBtn">导出数据</button>
+                <button id="pauseBtn">暂停更新</button>
+            </div>
+            <div class="control-group">
+                <label>采样率设置:</label>
+                <input type="number" id="expectedRate" value="1200" min="1" max="1200000" style="width: 100px;">
+                <span>Hz</span>
+            </div>
+        </div>
+
+        <div class="status">
+            <div class="status-item">
+                <div class="status-value" id="connectionStatus">未连接</div>
+                <div class="status-label">连接状态</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="dataPackets">0</div>
+                <div class="status-label">数据包数</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="totalSamples">0</div>
+                <div class="status-label">总采样点</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="actualRate">0</div>
+                <div class="status-label">实际采样率 (Hz)</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="lostSamples">0</div>
+                <div class="status-label">丢失采样点</div>
+            </div>
+            <div class="status-item">
+                <div class="status-value" id="storedPoints">0</div>
+                <div class="status-label">存储点数</div>
+            </div>
+        </div>
+
+        <div id="alertContainer"></div>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="chart">实时图表</div>
+            <div class="tab" data-tab="data">数据表格</div>
+            <div class="tab" data-tab="analysis">数据分析</div>
+            <div class="tab" data-tab="input">手动输入</div>
+        </div>
+
+        <div id="chartTab" class="tab-content active">
+            <div class="channel-selector">
+                <label><input type="checkbox" id="ch0" checked> CH0</label>
+                <label><input type="checkbox" id="ch1" checked> CH1</label>
+                <label><input type="checkbox" id="ch2"> CH2</label>
+                <label><input type="checkbox" id="ch3"> CH3</label>
+                <label><input type="checkbox" id="ch4"> CH4</label>
+                <label><input type="checkbox" id="ch5"> CH5</label>
+                <label><input type="checkbox" id="ch6"> CH6</label>
+                <label><input type="checkbox" id="ch7"> CH7</label>
+            </div>
+            <div class="chart-container">
+                <canvas id="dataChart"></canvas>
+            </div>
+        </div>
+
+        <div id="dataTab" class="tab-content">
+            <div class="data-table">
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>Index</th>
+                            <th>CH0(V)</th>
+                            <th>CH1(V)</th>
+                            <th>CH2(V)</th>
+                            <th>CH3(V)</th>
+                            <th>CH4(V)</th>
+                            <th>CH5(V)</th>
+                            <th>CH6(V)</th>
+                            <th>CH7(V)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="analysisTab" class="tab-content">
+            <div class="chart-container">
+                <canvas id="analysisChart"></canvas>
+            </div>
+            <div style="margin-bottom:8px;">
+                <label>分析通道:
+                    <select id="fftChannel">
+                        <option value="0">CH0</option>
+                        <option value="1">CH1</option>
+                        <option value="2">CH2</option>
+                        <option value="3">CH3</option>
+                        <option value="4">CH4</option>
+                        <option value="5">CH5</option>
+                        <option value="6">CH6</option>
+                        <option value="7">CH7</option>
+                    </select>
+                </label>
+                <label style="margin-left:10px;">信号频率(Hz):
+                    <input type="number" id="signalFreq" value="1200" min="1" max="1200000" style="width:80px;">
+                </label>
+                <button id="fftAnalyzeBtn">FFT分析采样率</button>
+            </div>
+            <div id="analysisResults"></div>
+        </div>
+
+        <div id="inputTab" class="tab-content">
+            <div class="data-input">
+                <h3>手动输入FFT分析数据</h3>
+                <p>请粘贴一包完整的ADS8688导出数据（含表头），选择通道后点击“频谱分析”：</p>
+                <textarea id="fftInput" placeholder="粘贴一包数据,如data.txt内容..." style="width:100%;height:180px;"></textarea>
+                <div style="margin:8px 0;">
+                    <label>分析通道:
+                        <select id="fftInputChannel">
+                            <option value="0">CH0</option>
+                            <option value="1">CH1</option>
+                            <option value="2">CH2</option>
+                            <option value="3">CH3</option>
+                            <option value="4">CH4</option>
+                            <option value="5">CH5</option>
+                            <option value="6">CH6</option>
+                            <option value="7">CH7</option>
+                        </select>
+                    </label>
+                    <label style="margin-left:10px;">信号频率(Hz):
+                        <input type="number" id="fftInputSignalFreq" value="1000" min="1" max="1000000" style="width:80px;">
+                    </label>
+                    <button id="fftInputAnalyzeBtn">频谱分析</button>
+                </div>
+                <div class="chart-container" style="height:220px;">
+                    <canvas id="fftInputChart"></canvas>
+                </div>
+                <div id="fftInputResult"></div>
+            </div>
+        </div>
+
+        <script>
+        // 手动FFT分析功能
+        function analyzeFFTInput() {
+            const txt = document.getElementById('fftInput').value;
+            const ch = parseInt(document.getElementById('fftInputChannel').value);
+            const freq = parseFloat(document.getElementById('fftInputSignalFreq').value);
+            const lines = txt.split(/\r?\n/);
+            let data = [];
+            for(let line of lines) {
+                if(line.startsWith('Index')||line.startsWith('===')||!line.trim()) continue;
+                const parts = line.split(',');
+                if(parts.length>=9) {
+                    // 修正: 数据格式为 Index,CH0,CH1,... parts[0]是Index, parts[1]是CH0, 因此通道ch的数据在parts[1+ch]
+                    let v = parseFloat(parts[1 + ch]);
+                    if(!isNaN(v)) data.push(v);
+                }
+            }
+
+            if(!window.FFT || data.length < 16) {
+                document.getElementById('fftInputResult').innerHTML = '<span style="color:#f00">数据不足或FFT库未加载</span>';
+                return;
+            }
+            // 取2的幂长度
+            let N = 1; while(N<data.length) N*=2; N/=2; N=Math.max(16,N);
+            data = data.slice(0,N);
+            // 去均值
+            let mean = data.reduce((a,b)=>a+b,0)/data.length;
+            let arr = data.map(x=>x-mean);
+            let fft = new FFT(N);
+            let re = arr.slice();
+            let im = new Array(N).fill(0);
+            fft.transform(re, im);
+            let mags = re.map((r,i)=>Math.sqrt(r*r+im[i]*im[i]));
+            // 只看前N/2
+            let maxIdx = 1;
+            for(let i=2;i<N/2;i++) if(mags[i]>mags[maxIdx]) maxIdx=i;
+            let peak = mags[maxIdx];
+            let peakFreqBin = maxIdx;
+            // 采样率反推
+            let fs = freq * N / peakFreqBin;
+            let msg = `主峰Bin: ${peakFreqBin}，主频幅值: ${peak.toFixed(2)}<br>反推采样率: <b>${fs.toFixed(2)} Hz</b> (输入信号: ${freq} Hz)`;
+            document.getElementById('fftInputResult').innerHTML = msg;
+            // 画频谱
+            let ctx = document.getElementById('fftInputChart').getContext('2d');
+            if(window.fftInputChartObj) window.fftInputChartObj.destroy();
+            window.fftInputChartObj = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length:N/2},(_,i)=>i),
+                    datasets: [{label:'幅值',data:mags.slice(0,N/2),borderColor:'#007bff',pointRadius:0}]
+                },
+                options: {
+                    responsive:true,maintainAspectRatio:false,
+                    plugins:{legend:{display:false}},
+                    scales:{x:{title:{display:true,text:'Bin'}},y:{title:{display:true,text:'幅值'}}},
+                    animation:false
+                }
+            });
+        }
+        </script>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fft.js/dist/fft.min.js"></script>
+    <script>
+        class ADS8688DataReceiver {
+            fftBuffer = [];
+            fftChannel = 0;
+            inPacket = false;
+            constructor() {
+                this.port = null;
+                this.reader = null;
+                this.decoder = new TextDecoder();
+                this.buffer = '';
+                this.isConnected = false;
+                this.isPaused = false;
+                this.dataPackets = 0;
+                this.totalSamples = 0;
+                this.expectedSampleRate = 1200;
+                this.actualSampleRate = 0;
+                this.lostSamples = 0;
+                this.lastSampleTime = 0;
+                this.sampleTimes = [];
+                this.allData = [];
+                this.maxStoragePoints = 1200;  // 最大存储点数
+                this.maxDisplayPoints = 1200;  // 最大显示点数
+
+                this.initChart();
+                this.initAnalysisChart();
+                this.bindEvents();
+            }
+
+            initChart() {
+                const ctx = document.getElementById('dataChart').getContext('2d');
+                this.chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            {
+                                label: 'CH0 (V)',
+                                data: [],
+                                borderColor: 'rgb(255, 99, 132)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'CH1 (V)',
+                                data: [],
+                                borderColor: 'rgb(54, 162, 235)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'CH2 (V)',
+                                data: [],
+                                borderColor: 'rgb(255, 205, 86)',
+                                backgroundColor: 'rgba(255, 205, 86, 0.2)',
+                                tension: 0.1,
+                                hidden: true
+                            },
+                            {
+                                label: 'CH3 (V)',
+                                data: [],
+                                borderColor: 'rgb(75, 192, 192)',
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                tension: 0.1,
+                                hidden: true
+                            },
+                            {
+                                label: 'CH4 (V)',
+                                data: [],
+                                borderColor: 'rgb(153, 102, 255)',
+                                backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                                tension: 0.1,
+                                hidden: true
+                            },
+                            {
+                                label: 'CH5 (V)',
+                                data: [],
+                                borderColor: 'rgb(255, 159, 64)',
+                                backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                                tension: 0.1,
+                                hidden: true
+                            },
+                            {
+                                label: 'CH6 (V)',
+                                data: [],
+                                borderColor: 'rgb(199, 199, 199)',
+                                backgroundColor: 'rgba(199, 199, 199, 0.2)',
+                                tension: 0.1,
+                                hidden: true
+                            },
+                            {
+                                label: 'CH7 (V)',
+                                data: [],
+                                borderColor: 'rgb(83, 102, 255)',
+                                backgroundColor: 'rgba(83, 102, 255, 0.2)',
+                                tension: 0.1,
+                                hidden: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'ADS8688 实时数据'
+                            },
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '采样点'
+                                }
+                            },
+                            y: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '电压 (V)'
+                                }
+                            }
+                        },
+                        animation: false,  // 完全禁用动画
+                        interaction: {
+                            intersect: false
+                        },
+                        elements: {
+                            point: {
+                                radius: 0  // 隐藏数据点，提高性能
+                            }
+                        }
+                    }
+                });
+            }
+
+            initAnalysisChart() {
+                const ctx = document.getElementById('analysisChart').getContext('2d');
+                this.analysisChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: '采样率 (Hz)',
+                            data: [],
+                            borderColor: 'rgb(255, 99, 132)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: '实际采样率监控'
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '时间'
+                                }
+                            },
+                            y: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '采样率 (Hz)'
+                                }
+                            }
+                        },
+                        animation: false,  // 禁用动画
+                        elements: {
+                            point: {
+                                radius: 0  // 隐藏数据点
+                            }
+                        }
+                    }
+                });
+            }
+
+            bindEvents() {
+                document.getElementById('connectBtn').addEventListener('click', () => this.connectSerial());
+                document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnectSerial());
+                document.getElementById('clearBtn').addEventListener('click', () => this.clearData());
+                document.getElementById('exportBtn').addEventListener('click', () => this.exportData());
+                document.getElementById('pauseBtn').addEventListener('click', () => this.togglePause());
+                document.getElementById('expectedRate').addEventListener('change', (e) => {
+                    this.expectedSampleRate = parseInt(e.target.value);
+                });
+
+                // 标签页切换
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.addEventListener('click', () => this.switchTab(tab.dataset.tab));
+                });
+
+                // 通道选择
+                for (let i = 0; i < 8; i++) {
+                    document.getElementById(`ch${i}`).addEventListener('change', (e) => {
+                        this.chart.data.datasets[i].hidden = !e.target.checked;
+                        // 使用 'none' 模式更新，避免动画
+                        this.chart.update('none');
+                    });
+                }
+            }
+
+            async connectSerial() {
+                if (!('serial' in navigator)) {
+                    this.showAlert('error', '您的浏览器不支持Web Serial API。请使用Chrome或Edge浏览器。');
+                    return;
+                }
+
+                try {
+                    this.port = await navigator.serial.requestPort();
+                    await this.port.open({ baudRate: 115200 });
+
+                    this.isConnected = true;
+                    this.updateConnectionStatus();
+                    this.showAlert('success', '串口连接成功！');
+
+                    this.startReading();
+                } catch (error) {
+                    this.showAlert('error', `连接失败: ${error.message}`);
+                }
+            }
+
+            async disconnectSerial() {
+                if (this.port) {
+                    if (this.reader) {
+                        await this.reader.cancel();
+                    }
+                    await this.port.close();
+                    this.port = null;
+                    this.reader = null;
+                    this.isConnected = false;
+                    this.updateConnectionStatus();
+                    this.showAlert('success', '串口已断开');
+                }
+            }
+
+            async startReading() {
+                if (!this.port) return;
+
+                try {
+                    this.reader = this.port.readable.getReader();
+
+                    while (this.isConnected) {
+                        const { value, done } = await this.reader.read();
+                        if (done) break;
+
+                        const text = this.decoder.decode(value);
+                        this.buffer += text;
+                        this.processBuffer();
+                    }
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        this.showAlert('error', `读取数据失败: ${error.message}`);
+                    }
+                } finally {
+                    if (this.reader) {
+                        this.reader.releaseLock();
+                    }
+                }
+            }
+
+            processBuffer() {
+                const lines = this.buffer.split('\n');
+                this.buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    this.processLine(line.trim());
+                }
+            }
+
+            processLine(line) {
+                if (line.includes('=== ADS8688 History Data')) {
+                    this.dataPackets++;
+                    this.inPacket = true;
+                    this.fftBuffer = [];
+                    this.updateStatus();
+                    return;
+                }
+                if (line.includes('Index,CH0')) {
+                    // 表头，跳过
+                    return;
+                }
+                if (line.includes('=== End of History Data')) {
+                    this.inPacket = false;
+                    this.calculateSampleRate();
+                    // 包结束时自动做一次FFT分析（可选）
+                    doFFTAnalyze();
+                    return;
+                }
+                // 只在包内收集数据
+                if (!this.inPacket) return;
+                // 处理数据行
+                const parts = line.split(',');
+                if (parts.length >= 9) {
+                    const index = parseInt(parts[0]);
+                    const data = {
+                        timestamp: Date.now(),
+                        index: index,
+                        ch0: parseFloat(parts[1]),
+                        ch1: parseFloat(parts[2]),
+                        ch2: parseFloat(parts[3]),
+                        ch3: parseFloat(parts[4]),
+                        ch4: parseFloat(parts[5]),
+                        ch5: parseFloat(parts[6]),
+                        ch6: parseFloat(parts[7]),
+                        ch7: parseFloat(parts[8])
+                    };
+                    this.allData.push(data);
+                    this.totalSamples++;
+                    // 只收集当前包的fftBuffer
+                    let ch = this.fftChannel || 0;
+                    let v = data['ch' + ch];
+                    this.fftBuffer.push(v);
+                    // 限制存储的数据点数量，保持最新的1200个点
+                    if (this.allData.length > this.maxStoragePoints) {
+                        this.allData.shift();
+                    }
+                    if (!this.isPaused) {
+                        this.updateChart(data);
+                        this.updateDataTable(data);
+                    }
+                }
+                // FFT分析采样率
+                function doFFTAnalyze() {
+                    const ch = parseInt(document.getElementById('fftChannel').value);
+                    const freq = parseFloat(document.getElementById('signalFreq').value);
+                    const buf = receiver.fftBuffer || [];
+                    if (!window.FFT || !buf || buf.length < 512) {
+                        document.getElementById('analysisResults').innerHTML = '<span style="color:#f00">采样点不足512或FFT库未加载</span>';
+                        return;
+                    }
+                    // 取最新512点
+                    let data = buf.slice(-512);
+                    // 去均值
+                    let mean = data.reduce((a, b) => a + b, 0) / data.length;
+                    let arr = data.map(x => x - mean);
+                    let fft = new FFT(512);
+                    let re = arr.slice();
+                    let im = new Array(512).fill(0);
+                    fft.transform(re, im);
+                    let mags = re.map((r, i) => Math.sqrt(r * r + im[i] * im[i]));
+                    // 只看前256
+                    let maxIdx = 1;
+                    for (let i = 2; i < 256; i++) if (mags[i] > mags[maxIdx]) maxIdx = i;
+                    let peak = mags[maxIdx];
+                    let peakFreqBin = maxIdx;
+                    // 采样率反推
+                    let fs = freq * 512 / peakFreqBin;
+                    let msg = `主峰Bin: ${peakFreqBin}，主频幅值: ${peak.toFixed(2)}<br>反推采样率: <b>${fs.toFixed(2)} Hz</b> (输入信号: ${freq} Hz)`;
+                    document.getElementById('analysisResults').innerHTML = msg;
+                }
+
+                document.addEventListener('DOMContentLoaded', function () {
+                    document.getElementById('fftAnalyzeBtn').onclick = doFFTAnalyze;
+                    document.getElementById('fftChannel').onchange = function () {
+                        receiver.fftChannel = parseInt(this.value);
+                    };
+                    // Bind manual FFT analysis button
+                    document.getElementById('fftInputAnalyzeBtn').onclick = analyzeFFTInput;
+                });
+            }
+
+            updateChart(data) {
+                const chartData = this.chart.data;
+
+                // 限制显示点数，保持最新的1200个点
+                if (chartData.labels.length >= this.maxDisplayPoints) {
+                    chartData.labels.shift();
+                    chartData.datasets.forEach(dataset => dataset.data.shift());
+                }
+
+                chartData.labels.push(data.index);
+                chartData.datasets[0].data.push(data.ch0);
+                chartData.datasets[1].data.push(data.ch1);
+                chartData.datasets[2].data.push(data.ch2);
+                chartData.datasets[3].data.push(data.ch3);
+                chartData.datasets[4].data.push(data.ch4);
+                chartData.datasets[5].data.push(data.ch5);
+                chartData.datasets[6].data.push(data.ch6);
+                chartData.datasets[7].data.push(data.ch7);
+
+                // 使用 'none' 模式更新，完全跳过动画
+                this.chart.update('none');
+            }
+
+            updateDataTable(data) {
+                const tableBody = document.getElementById('dataTableBody');
+                const row = tableBody.insertRow(0);
+
+                row.insertCell(0).textContent = new Date(data.timestamp).toLocaleTimeString();
+                row.insertCell(1).textContent = data.index;
+                row.insertCell(2).textContent = data.ch0.toFixed(4);
+                row.insertCell(3).textContent = data.ch1.toFixed(4);
+                row.insertCell(4).textContent = data.ch2.toFixed(4);
+                row.insertCell(5).textContent = data.ch3.toFixed(4);
+                row.insertCell(6).textContent = data.ch4.toFixed(4);
+                row.insertCell(7).textContent = data.ch5.toFixed(4);
+                row.insertCell(8).textContent = data.ch6.toFixed(4);
+                row.insertCell(9).textContent = data.ch7.toFixed(4);
+
+                // 限制表格行数为50，减少DOM元素数量
+                while (tableBody.rows.length > 50) {
+                    tableBody.deleteRow(-1);
+                }
+            }
+
+            calculateSampleRate() {
+                const now = Date.now();
+                this.sampleTimes.push(now);
+
+                // 保持最近10个数据包的时间
+                if (this.sampleTimes.length > 10) {
+                    this.sampleTimes.shift();
+                }
+
+                if (this.sampleTimes.length >= 2) {
+                    const timeDiff = (now - this.sampleTimes[0]) / 1200; // 秒
+                    const sampleCount = (this.sampleTimes.length - 1) * 512; // 每包512个样本
+                    this.actualSampleRate = Math.round(sampleCount / timeDiff);
+                }
+
+                this.updateAnalysisChart();
+            }
+
+            updateAnalysisChart() {
+                const now = new Date().toLocaleTimeString();
+                const analysisData = this.analysisChart.data;
+
+                // 限制分析图表点数为30，减少内存使用
+                if (analysisData.labels.length >= 30) {
+                    analysisData.labels.shift();
+                    analysisData.datasets[0].data.shift();
+                }
+
+                analysisData.labels.push(now);
+                analysisData.datasets[0].data.push(this.actualSampleRate);
+
+                // 使用 'none' 模式更新，跳过动画
+                this.analysisChart.update('none');
+            }
+
+            updateStatus() {
+                document.getElementById('dataPackets').textContent = this.dataPackets;
+                document.getElementById('totalSamples').textContent = this.totalSamples;
+                document.getElementById('actualRate').textContent = this.actualSampleRate;
+                document.getElementById('lostSamples').textContent = this.lostSamples;
+                document.getElementById('storedPoints').textContent = this.allData.length;
+            }
+
+            updateConnectionStatus() {
+                const status = document.getElementById('connectionStatus');
+                const connectBtn = document.getElementById('connectBtn');
+                const disconnectBtn = document.getElementById('disconnectBtn');
+
+                if (this.isConnected) {
+                    status.textContent = '已连接';
+                    status.style.color = '#28a745';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                } else {
+                    status.textContent = '未连接';
+                    status.style.color = '#dc3545';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                }
+            }
+
+            clearData() {
+                this.allData = [];
+                this.totalSamples = 0;
+                this.dataPackets = 0;
+                this.actualSampleRate = 0;
+                this.lostSamples = 0;
+                this.sampleTimes = [];
+
+                this.chart.data.labels = [];
+                this.chart.data.datasets.forEach(dataset => dataset.data = []);
+                this.chart.update();
+
+                this.analysisChart.data.labels = [];
+                this.analysisChart.data.datasets[0].data = [];
+                this.analysisChart.update();
+
+                document.getElementById('dataTableBody').innerHTML = '';
+                this.updateStatus();
+
+                this.showAlert('success', '数据已清空');
+            }
+
+            exportData() {
+                if (this.allData.length === 0) {
+                    this.showAlert('warning', '没有数据可导出');
+                    return;
+                }
+
+                const csv = this.dataToCSV();
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ADS8688_data_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                this.showAlert('success', '数据导出成功');
+            }
+
+            dataToCSV() {
+                const headers = ['Timestamp', 'Index', 'CH0(V)', 'CH1(V)', 'CH2(V)', 'CH3(V)', 'CH4(V)', 'CH5(V)', 'CH6(V)', 'CH7(V)'];
+                const rows = this.allData.map(data => [
+                    new Date(data.timestamp).toISOString(),
+                    data.index,
+                    data.ch0,
+                    data.ch1,
+                    data.ch2,
+                    data.ch3,
+                    data.ch4,
+                    data.ch5,
+                    data.ch6,
+                    data.ch7
+                ]);
+
+                return [headers, ...rows].map(row => row.join(',')).join('\n');
+            }
+
+            togglePause() {
+                this.isPaused = !this.isPaused;
+                const btn = document.getElementById('pauseBtn');
+                btn.textContent = this.isPaused ? '继续更新' : '暂停更新';
+                btn.style.backgroundColor = this.isPaused ? '#dc3545' : '#007bff';
+            }
+
+            switchTab(tabName) {
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+                document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+                document.getElementById(`${tabName}Tab`).classList.add('active');
+            }
+
+            showAlert(type, message) {
+                const alertContainer = document.getElementById('alertContainer');
+                const alert = document.createElement('div');
+                alert.className = `alert alert-${type}`;
+                alert.textContent = message;
+
+                alertContainer.appendChild(alert);
+
+                setTimeout(() => {
+                    alert.remove();
+                }, 5000);
+            }
+        }
+
+        // 手动处理数据函数
+        function processManualData() {
+            const input = document.getElementById('dataInput').value;
+            const lines = input.split('\n');
+
+            for (const line of lines) {
+                receiver.processLine(line.trim());
+            }
+
+            receiver.showAlert('success', '手动数据处理完成');
+        }
+
+        // 初始化应用
+        const receiver = new ADS8688DataReceiver();
+
+        // 页面加载完成后显示使用说明
+        window.addEventListener('load', () => {
+            receiver.showAlert('success', '🎉 ADS8688数据接收器已启动！点击"连接串口"开始接收数据。');
+        });
+    </script>
+</body>
+
+</html>

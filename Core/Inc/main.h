@@ -58,6 +58,7 @@ void Error_Handler(void);
 void ADS8688_SetSamplingEnabled(uint8_t enable);
 uint32_t ADS8688_GetSampleCount(void);
 void ADS8688_ResetSampleCount(void);
+void ADS8688_SendHistoryData(void);
 
 // 历史记录相关函数声明
 uint16_t ADS8688_GetHistoryData(uint8_t channel, uint16_t index);

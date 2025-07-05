@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FFT 分析器</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; background-color: #f4f7f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background-color: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 90%; max-width: 800px; }
+        h1 { text-align: center; color: #333; margin-top: 0; }
+        p { color: #666; }
+        textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-family: monospace; }
+        .controls { margin: 15px 0; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
+        .controls label { font-weight: bold; }
+        .controls select, .controls input, .controls button { padding: 8px 12px; border-radius: 5px; border: 1px solid #ccc; }
+        .controls button { background-color: #007bff; color: white; border-color: #007bff; cursor: pointer; transition: background-color 0.2s; }
+        .controls button:hover { background-color: #0056b3; }
+        .chart-container { position: relative; height: 300px; margin-top: 20px; }
+        #fftResult { margin-top: 15px; padding: 15px; background-color: #e9f5ff; border-left: 4px solid #007bff; color: #333; font-size: 1.1em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>FFT 频谱分析器</h1>
+        <p>请粘贴一包完整的ADS8688导出数据（格式需类似 `data.txt`，包含表头），选择通道和输入信号频率，然后点击“频谱分析”。</p>
+        
+        <textarea id="fftInput" placeholder="在此处粘贴数据..." style="height: 200px;"></textarea>
+        
+        <div class="controls">
+            <label for="fftInputChannel">分析通道:</label>
+            <select id="fftInputChannel">
+                <option value="0">CH0</option>
+                <option value="1">CH1</option>
+                <option value="2">CH2</option>
+                <option value="3">CH3</option>
+                <option value="4">CH4</option>
+                <option value="5">CH5</option>
+                <option value="6">CH6</option>
+                <option value="7">CH7</option>
+            </select>
+            
+            <label for="fftInputSignalFreq">信号频率 (Hz):</label>
+            <input type="number" id="fftInputSignalFreq" value="1000" min="1" style="width: 100px;">
+            
+            <button id="fftAnalyzeBtn">频谱分析</button>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="fftChart"></canvas>
+        </div>
+        
+        <div id="fftResult">分析结果将显示在这里。</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.getElementById('fftAnalyzeBtn').addEventListener('click', analyzeFFTInput);
+
+        let fftChartObj = null;
+
+        /**
+         * Computes the Fast Fourier Transform (FFT) of a real-valued signal.
+         * Uses the Cooley-Tukey radix-2 decimation-in-time algorithm.
+         * @param {number[]} realData The input array of real numbers. Its length MUST be a power of 2.
+         * @returns {{real: number[], imag: number[]}} An object containing the real and imaginary parts of the transform.
+         */
+        function customFFT(realData) {
+            const N = realData.length;
+            if (N === 0 || (N & (N - 1)) !== 0) {
+                console.error('Input data length must be a power of 2 for this FFT implementation.');
+                return { real: [], imag: [] };
+            }
+
+            // Bit-reversal permutation
+            const re = new Array(N);
+            const im = new Array(N).fill(0);
+            let log2n = Math.log2(N);
+            for (let i = 0; i < N; i++) {
+                let rev = 0;
+                for (let j = 0; j < log2n; j++) {
+                    if ((i >> j) & 1) {
+                        rev |= 1 << (log2n - 1 - j);
+                    }
+                }
+                re[rev] = realData[i];
+            }
+
+            // Cooley-Tukey FFT
+            for (let size = 2; size <= N; size *= 2) {
+                const halfSize = size / 2;
+                const angleStep = -2 * Math.PI / size;
+                for (let i = 0; i < N; i += size) {
+                    for (let j = 0; j < halfSize; j++) {
+                        const k = i + j;
+                        const l = k + halfSize;
+                        
+                        // Twiddle factor
+                        const w_re = Math.cos(angleStep * j);
+                        const w_im = Math.sin(angleStep * j);
+
+                        const t_re = re[l] * w_re - im[l] * w_im;
+                        const t_im = re[l] * w_im + im[l] * w_re;
+
+                        re[l] = re[k] - t_re;
+                        im[l] = im[k] - t_im;
+                        re[k] += t_re;
+                        im[k] += t_im;
+                    }
+                }
+            }
+            return { real: re, imag: im };
+        }
+
+        function analyzeFFTInput() {
+            const dataText = document.getElementById('fftInput').value;
+            const channel = parseInt(document.getElementById('fftInputChannel').value);
+            const signalFreq = parseFloat(document.getElementById('fftInputSignalFreq').value);
+            const resultDiv = document.getElementById('fftResult');
+
+            if (!dataText.trim()) {
+                resultDiv.innerHTML = '<span style="color:#f00;">错误：输入数据为空。</span>';
+                return;
+            }
+
+            const lines = dataText.split(/\r?\n/);
+            const data = [];
+            
+            // 解析数据
+            for (const line of lines) {
+                // 跳过表头、分隔符和空行
+                if (line.toLowerCase().startsWith('index') || line.startsWith('===') || !line.trim()) {
+                    continue;
+                }
+                const parts = line.split(',');
+                // 确保行数据有效，并且选择的通道存在
+                if (parts.length > 1 + channel) {
+                    const value = parseFloat(parts[1 + channel]);
+                    if (!isNaN(value)) {
+                        data.push(value);
+                    }
+                }
+            }
+
+            if (data.length < 16) {
+                resultDiv.innerHTML = `<span style="color:#f00;">错误：有效数据点不足16个 (仅找到 ${data.length} 个)。请检查数据格式和所选通道。</span>`;
+                return;
+            }
+
+            // 寻找最接近数据长度的2的幂
+            let N = 1;
+            while (N * 2 <= data.length) {
+                N *= 2;
+            }
+
+            const truncatedData = data.slice(0, N);
+
+            // 去除直流分量（均值）
+            const mean = truncatedData.reduce((a, b) => a + b, 0) / N;
+            const processedData = truncatedData.map(x => x - mean);
+
+            // 执行FFT
+            const { real: realPart, imag: imagPart } = customFFT(processedData);
+
+            if (!realPart.length) {
+                resultDiv.innerHTML = '<span style="color:#f00;">错误：FFT计算失败，请检查数据长度是否为2的幂。</span>';
+                return;
+            }
+
+            const magnitudes = realPart.map((r, i) => Math.sqrt(r * r + imagPart[i] * imagPart[i]));
+
+            // 寻找主频峰值 (跳过直流分量 at index 0)
+            let maxMagnitude = 0;
+            let peakBinIndex = 0;
+            for (let i = 1; i < N / 2; i++) {
+                if (magnitudes[i] > maxMagnitude) {
+                    maxMagnitude = magnitudes[i];
+                    peakBinIndex = i;
+                }
+            }
+
+            if (peakBinIndex === 0) {
+                 resultDiv.innerHTML = '<span style="color:#f00;">错误：未能找到有效的主频峰值。</span>';
+                 return;
+            }
+
+            // 反推采样率
+            const estimatedSampleRate = signalFreq * N / peakBinIndex;
+
+            // 显示结果
+            resultDiv.innerHTML = `
+                数据点数 (N): ${N}<br>
+                主峰频率 Bin: ${peakBinIndex}<br>
+                主峰幅值: ${maxMagnitude.toFixed(3)}<br>
+                输入信号频率: ${signalFreq} Hz<br>
+                <b>反推采样率 (Fs): ≈ ${estimatedSampleRate.toFixed(2)} Hz</b>
+            `;
+
+            // 绘制频谱图
+            const ctx = document.getElementById('fftChart').getContext('2d');
+            if (fftChartObj) {
+                fftChartObj.destroy();
+            }
+            fftChartObj = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: N / 2}, (_, i) => i), // X轴为频率Bin
+                    datasets: [{
+                        label: `CH${channel} 频谱幅值`,
+                        data: magnitudes.slice(0, N / 2),
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true },
+                        title: { display: true, text: 'FFT 频谱分析' }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: '频率 Bin' }
+                        },
+                        y: {
+                            title: { display: true, text: '幅值' },
+                            beginAtZero: true
+                        }
+                    },
+                    animation: false
+                }
+            });
+        }
+    </script>
+</body>
+</html>
