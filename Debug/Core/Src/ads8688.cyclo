@@ -1,5 +1,0 @@
-../Core/Src/ads8688.c:12:9:ADS8688_Init	1
-../Core/Src/ads8688.c:91:19:ADS8688_ReadRegister	1
-../Core/Src/ads8688.c:116:19:ADS8688_WriteRegister	1
-../Core/Src/ads8688.c:140:19:ADS8688_SendCommand	1
-../Core/Src/ads8688.c:165:19:ADS8688_ReadAllChannelsRaw	3
