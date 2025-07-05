@@ -23,7 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ADS8688.h"
+#include "ads8688.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,19 +48,14 @@
 
 // ADS变量
 ADS8688_HandleTypeDef ads; // 这个设计对一个STM32接入多个ADS8688友好
-uint16_t ads_data[8];
+uint16_t ads_data[8]={0};
 float voltage[8] = {0};
-// 根据ADS8688_Init中的设置，定义每个通道的电压量程（单位：V）
-const float channel_voltage_ranges[8] = {
-    5.12,  // CH0: 0 to 1.25 x VREF (VREF = 4.096V)
-    5.12,  // CH1: 0 to 1.25 x VREF
-    10.24, // CH2: 0 to 2.5 x VREF
-    10.24, // CH3: 0 to 2.5 x VREF
-    10.24, // CH4: 0 to 2.5 x VREF
-    10.24, // CH5: 0 to 2.5 x VREF
-    5.12,  // CH6: 0 to 1.25 x VREF
-    5.12   // CH7: 0 to 1.25 x VREF
-};
+
+// ADS8688参考电压定义（根据实际硬件电路设置）
+#define ADS8688_VREF 4.096f  // 参考电压为4.096V（内部参考电压典型值）
+
+// 存储当前通道范围设置，用于正确的电压转换
+uint8_t current_channel_ranges[ADS8688_NUM_CHANNELS];
 
 /* USER CODE END PV */
 
@@ -106,21 +101,50 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+  // 初始化ADS8688复位引脚
   HAL_GPIO_WritePin(ADS8688_RST_GPIO_Port, ADS8688_RST_Pin, GPIO_PIN_SET);
+  
+  // 初始化ADS8688
   ADS8688_Init(&ads, &hspi1, ADS8688_CS_GPIO_Port, ADS8688_CS_Pin);
+
+  // 设置通道输入范围（在初始化之后重新配置）
+  uint8_t channel_ranges[ADS8688_NUM_CHANNELS] = {
+      ADS8688_RANGE_UNIPOLAR_1_25_VREF, // 通道0: 0 to 1.25 × VREF (0-5.12V)
+      ADS8688_RANGE_UNIPOLAR_1_25_VREF, // 通道1: 0 to 1.25 × VREF (0-5.12V)
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道2: ±2.5 × VREF (±10.24V) 
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道3: ±2.5 × VREF (±10.24V) 
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道4: ±2.5 × VREF (±10.24V) 
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道5: ±2.5 × VREF (±10.24V) 
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道6: ±2.5 × VREF (±10.24V) 
+      ADS8688_RANGE_BIPOLAR_2_5_VREF    // 通道7: ±2.5 × VREF (±10.24V) 
+  };
+  // 应用通道范围配置
+  ADS8688_SetChannelRanges(&ads, channel_ranges);
+  
+  // 保存当前通道范围设置以便后续电压转换使用
+  for(int i = 0; i < ADS8688_NUM_CHANNELS; i++) {
+      current_channel_ranges[i] = channel_ranges[i];
+  }
+
+  ADS8688_SetActiveChannels(&ads, 0b00000011); // 只采集通道0和1，提高采样率
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
+    // 读取所有通道原始数据
     ADS8688_ReadAllChannelsRaw(&ads, ads_data);
-    for (int i = 0; i < 8; i++)
+    
+    // 使用专用的电压转换函数将原始数据转换为实际电压
+    for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
     {
-      // 使用16位分辨率（65535）和对应通道的正确电压范围进行计算
-      voltage[i] = ((float)ads_data[i] / 65535.0) * channel_voltage_ranges[i];
+      voltage[i] = ADS8688_ConvertToVoltage(ads_data[i], current_channel_ranges[i], ADS8688_VREF);
     }
+    
+    // 可以在这里添加调试输出或其他处理
+    // 例如：通过串口输出电压值等
+    
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
