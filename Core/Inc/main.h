@@ -54,6 +54,18 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+// 定时器中断采样相关函数声明
+void ADS8688_SetSamplingEnabled(uint8_t enable);
+uint32_t ADS8688_GetSampleCount(void);
+void ADS8688_ResetSampleCount(void);
+
+// 历史记录相关函数声明
+uint16_t ADS8688_GetHistoryData(uint8_t channel, uint16_t index);
+uint16_t ADS8688_GetHistoryIndex(void);
+uint16_t ADS8688_GetHistoryCount(void);
+void ADS8688_ClearHistory(void);
+uint16_t ADS8688_GetRecentHistoryData(uint8_t channel, uint16_t *data, uint16_t count);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

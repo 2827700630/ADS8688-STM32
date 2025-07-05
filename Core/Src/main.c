@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "spi.h"
+#include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -48,14 +49,33 @@
 
 // ADS变量
 ADS8688_HandleTypeDef ads; // 这个设计对一个STM32接入多个ADS8688友好
-uint16_t ads_data[8]={0};
+uint16_t ads_data[8] = {0};
 float voltage[8] = {0};
 
 // ADS8688参考电压定义（根据实际硬件电路设置）
-#define ADS8688_VREF 4.096f  // 参考电压为4.096V（内部参考电压典型值）
+#define ADS8688_VREF 4.096f // 参考电压为4.096V（内部参考电压典型值）
 
 // 存储当前通道范围设置，用于正确的电压转换
 uint8_t current_channel_ranges[ADS8688_NUM_CHANNELS];
+
+// 定时器中断采样相关变量
+volatile uint8_t sampling_flag = 0;    // 采样标志位，在定时器中断中设置
+volatile uint32_t sample_count = 0;    // 采样计数器
+volatile uint8_t sampling_enabled = 1; // 采样使能标志，可用于暂停/恢复采样
+
+// 历史记录相关变量
+#define HISTORY_SIZE 512  // 历史记录缓冲区大小
+float history_buffer[ADS8688_NUM_CHANNELS][HISTORY_SIZE]={0};  // 历史数据缓冲区
+volatile uint16_t history_index = 0;  // 当前写入位置
+volatile uint8_t history_full = 0;    // 历史缓冲区是否已满标志
+
+/*
+ * 历史记录功能说明：
+ * 1. 使用循环缓冲区存储最近的HISTORY_SIZE个采样数据
+ * 2. 支持按通道和时间索引查询历史数据
+ * 3. 提供统计功能如获取最新N个数据
+ * 4. 内存使用：8通道 × 100个数据点 × 2字节 = 1.6KB
+ */
 
 /* USER CODE END PV */
 
@@ -100,10 +120,11 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   // 初始化ADS8688复位引脚
   HAL_GPIO_WritePin(ADS8688_RST_GPIO_Port, ADS8688_RST_Pin, GPIO_PIN_SET);
-  
+
   // 初始化ADS8688
   ADS8688_Init(&ads, &hspi1, ADS8688_CS_GPIO_Port, ADS8688_CS_Pin);
 
@@ -111,40 +132,72 @@ int main(void)
   uint8_t channel_ranges[ADS8688_NUM_CHANNELS] = {
       ADS8688_RANGE_UNIPOLAR_1_25_VREF, // 通道0: 0 to 1.25 × VREF (0-5.12V)
       ADS8688_RANGE_UNIPOLAR_1_25_VREF, // 通道1: 0 to 1.25 × VREF (0-5.12V)
-      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道2: ±2.5 × VREF (±10.24V) 
-      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道3: ±2.5 × VREF (±10.24V) 
-      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道4: ±2.5 × VREF (±10.24V) 
-      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道5: ±2.5 × VREF (±10.24V) 
-      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道6: ±2.5 × VREF (±10.24V) 
-      ADS8688_RANGE_BIPOLAR_2_5_VREF    // 通道7: ±2.5 × VREF (±10.24V) 
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道2: ±2.5 × VREF (±10.24V)
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道3: ±2.5 × VREF (±10.24V)
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道4: ±2.5 × VREF (±10.24V)
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道5: ±2.5 × VREF (±10.24V)
+      ADS8688_RANGE_BIPOLAR_2_5_VREF,   // 通道6: ±2.5 × VREF (±10.24V)
+      ADS8688_RANGE_BIPOLAR_2_5_VREF    // 通道7: ±2.5 × VREF (±10.24V)
   };
   // 应用通道范围配置
   ADS8688_SetChannelRanges(&ads, channel_ranges);
-  
+
   // 保存当前通道范围设置以便后续电压转换使用
-  for(int i = 0; i < ADS8688_NUM_CHANNELS; i++) {
-      current_channel_ranges[i] = channel_ranges[i];
+  for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
+  {
+    current_channel_ranges[i] = channel_ranges[i];
   }
 
   ADS8688_SetActiveChannels(&ads, 0b00000011); // 只采集通道0和1，提高采样率
+
+
+  // 启动定时器中断，开始定时采样
+  HAL_TIM_Base_Start_IT(&htim2); // 启动TIM2中断
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // 读取所有通道原始数据
-    ADS8688_ReadAllChannelsRaw(&ads, ads_data);
-    
-    // 使用专用的电压转换函数将原始数据转换为实际电压
-    for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
+    // 等待定时器中断设置采样标志
+    if (sampling_flag)
     {
-      voltage[i] = ADS8688_ConvertToVoltage(ads_data[i], current_channel_ranges[i], ADS8688_VREF);
+      sampling_flag = 0; // 清除采样标志
+
+      // 执行采样操作
+      ADS8688_ReadAllChannelsRaw(&ads, ads_data);
+
+      // 使用专用的电压转换函数将原始数据转换为实际电压
+      for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
+      {
+        voltage[i] = ADS8688_ConvertToVoltage(ads_data[i], current_channel_ranges[i], ADS8688_VREF);
+      }
+
+      // 将原始数据存储到历史记录缓冲区
+      for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
+      {
+        history_buffer[i][history_index] = voltage[i];
+      }
+      
+      // 更新历史记录索引（循环缓冲区）
+      history_index++;
+      if (history_index >= HISTORY_SIZE)
+      {
+        history_index = 0;
+        history_full = 1;  // 标记缓冲区已满
+      }
+
+      // 增加采样计数
+      sample_count++;
+
+      // 可以在这里添加调试输出或其他处理
+      // 例如：通过串口输出电压值等
+      // 为了避免影响定时采样，建议使用缓冲区或状态机处理数据输出
     }
-    
-    // 可以在这里添加调试输出或其他处理
-    // 例如：通过串口输出电压值等
-    
+
+    // 可以在这里添加其他非时间关键的任务
+    // 例如：处理串口通信、LED指示等
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -191,6 +244,50 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+ * @brief 定时器中断回调函数
+ * @param htim: 定时器句柄
+ * @retval None
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2) // 确保是TIM2中断
+  {
+    if (sampling_enabled) // 检查采样使能标志
+    {
+      sampling_flag = 1; // 设置采样标志，通知主循环执行采样
+    }
+  }
+}
+
+/**
+ * @brief 控制采样的启动和停止
+ * @param enable: 1-启动采样，0-停止采样
+ * @retval None
+ */
+void ADS8688_SetSamplingEnabled(uint8_t enable)
+{
+  sampling_enabled = enable;
+}
+
+/**
+ * @brief 获取当前采样计数
+ * @retval 当前采样计数值
+ */
+uint32_t ADS8688_GetSampleCount(void)
+{
+  return sample_count;
+}
+
+/**
+ * @brief 重置采样计数
+ * @retval None
+ */
+void ADS8688_ResetSampleCount(void)
+{
+  sample_count = 0;
+}
 
 /* USER CODE END 4 */
 
