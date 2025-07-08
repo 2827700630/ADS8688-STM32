@@ -19,8 +19,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "spi.h"
-#include "tim.h"
-#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -48,13 +46,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-// 外部变量声明
-extern UART_HandleTypeDef huart1;
-
-// SPI_HandleTypeDef hspi1;
 
 // ADS变量
-ADS8688_HandleTypeDef ads; // 这个设计对一个STM32接入多个ADS8688友好
+ADS8688_HandleTypeDef ADS8688; // 这个设计对一个STM32接入多个ADS8688友好
 uint16_t ads_data[8] = {0};
 float voltage[8] = {0};
 
@@ -63,27 +57,6 @@ float voltage[8] = {0};
 
 // 存储当前通道范围设置，用于正确的电压转换
 uint8_t current_channel_ranges[ADS8688_NUM_CHANNELS];
-
-// 定时器中断采样相关变量
-volatile uint8_t sampling_flag = 0;    // 采样标志位，在定时器中断中设置
-volatile uint32_t sample_count = 0;    // 采样计数器
-volatile uint8_t sampling_enabled = 1; // 采样使能标志，可用于暂停/恢复采样
-
-// 历史记录相关变量
-#define HISTORY_SIZE 512                                        // 历史记录缓冲区大小
-float history_buffer[ADS8688_NUM_CHANNELS][HISTORY_SIZE] = {0}; // 历史数据缓冲区
-volatile uint16_t history_index = 0;                            // 当前写入位置
-volatile uint8_t history_full = 0;                              // 历史缓冲区是否已满标志
-volatile uint8_t send_data_flag = 0;                            // 发送数据标志
-
-/*
- * 历史记录功能说明：
- * 1. 使用循环缓冲区存储最近的HISTORY_SIZE个采样数据
- * 2. 支持按通道和时间索引查询历史数据
- * 3. 提供统计功能如获取最新N个数据
- * 4. 内存使用：8通道 × 512个数据点 × 4字节 = 16.384KB
- * 5. 缓冲区满时通过USART1发送全部数据
- */
 
 /* USER CODE END PV */
 
@@ -99,9 +72,9 @@ void SystemClock_Config(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -128,14 +101,11 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
-  MX_TIM2_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  // 初始化ADS8688复位引脚
-  HAL_GPIO_WritePin(ADS8688_RST_GPIO_Port, ADS8688_RST_Pin, GPIO_PIN_SET);
 
-  // 初始化ADS8688
-  ADS8688_Init(&ads, &hspi1, ADS8688_CS_GPIO_Port, ADS8688_CS_Pin);
+  HAL_GPIO_WritePin(ADS8688_RST_GPIO_Port, ADS8688_RST_Pin, GPIO_PIN_SET); // 初始化ADS8688复位引脚
+
+  ADS8688_Init(&ADS8688, &hspi1, ADS8688_CS_GPIO_Port, ADS8688_CS_Pin); // 初始化ADS8688
 
   // 设置通道输入范围（在初始化之后重新配置）
   uint8_t channel_ranges[ADS8688_NUM_CHANNELS] = {
@@ -149,7 +119,7 @@ int main(void)
       ADS8688_RANGE_BIPOLAR_2_5_VREF  // 通道7: ±2.5 × VREF (±10.24V)
   };
   // 应用通道范围配置
-  ADS8688_SetChannelRanges(&ads, channel_ranges);
+  ADS8688_SetChannelRanges(&ADS8688, channel_ranges);
 
   // 保存当前通道范围设置以便后续电压转换使用
   for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
@@ -157,71 +127,22 @@ int main(void)
     current_channel_ranges[i] = channel_ranges[i];
   }
 
-  ADS8688_SetActiveChannels(&ads, ADS8688_AUTO_SEQ_ALL_EN); // 只采集通道0和1，提高采样率
+  // 使用下面的函数设置采集通道数，并且要修改ADS8688_NUM_CHANNELS
+  ADS8688_SetActiveChannels(&ADS8688, ADS8688_AUTO_SEQ_ALL_EN); // 采集所有通道
 
-  // 发送启动信息
-  char start_msg[] = "\r\n=== ADS8688 Data Acquisition System Started ===\r\n";
-  HAL_UART_Transmit(&huart1, (uint8_t *)start_msg, strlen(start_msg), HAL_MAX_DELAY);
-
-  // 启动定时器中断，开始定时采样
-  HAL_TIM_Base_Start_IT(&htim2); // 启动TIM2中断
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // 等待定时器中断设置采样标志
-    if (sampling_flag)
+
+    ADS8688_ReadAllChannelsRaw(&ADS8688, ads_data);
+
+    // 使用专用的电压转换函数将原始数据转换为实际电压
+    for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
     {
-      sampling_flag = 0; // 清除采样标志
-
-      // 执行采样操作
-      ADS8688_ReadAllChannelsRaw(&ads, ads_data);
-
-      // 使用专用的电压转换函数将原始数据转换为实际电压
-      for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
-      {
-        voltage[i] = ADS8688_ConvertToVoltage(ads_data[i], current_channel_ranges[i], ADS8688_VREF);
-      }
-
-      // 将原始数据存储到历史记录缓冲区
-      for (int i = 0; i < ADS8688_NUM_CHANNELS; i++)
-      {
-        history_buffer[i][history_index] = voltage[i];
-      }
-
-      // 更新历史记录索引（循环缓冲区）
-      history_index++;
-      if (history_index >= HISTORY_SIZE)
-      {
-        history_index = 0;
-        history_full = 1;   // 标记缓冲区已满
-        send_data_flag = 1; // 每次缓冲区满时都设置发送数据标志
-      }
-
-      // 增加采样计数
-      sample_count++;
-
-      // 可以在这里添加调试输出或其他处理
-      // 例如：通过串口输出电压值等
-      // 为了避免影响定时采样，建议使用缓冲区或状态机处理数据输出
-    }
-
-    // 检查是否需要发送历史数据
-    if (send_data_flag)
-    {
-      send_data_flag = 0; // 清除发送标志
-
-      // 暂停采样以避免发送过程中数据被覆盖
-      uint8_t temp_sampling_enabled = sampling_enabled;
-      sampling_enabled = 0;
-
-      // 发送缓冲区数据
-      ADS8688_SendHistoryData();
-
-      // 恢复采样
-      sampling_enabled = temp_sampling_enabled;
+      voltage[i] = ADS8688_ConvertToVoltage(ads_data[i], current_channel_ranges[i], ADS8688_VREF);
     }
 
     // 可以在这里添加其他非时间关键的任务
@@ -235,17 +156,17 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -259,9 +180,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -275,82 +195,12 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-/**
- * @brief 定时器中断回调函数
- * @param htim: 定时器句柄
- * @retval None
- */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim->Instance == TIM2) // 确保是TIM2中断
-  {
-    if (sampling_enabled) // 检查采样使能标志
-    {
-      sampling_flag = 1; // 设置采样标志，通知主循环执行采样
-    }
-  }
-}
-
-/**
- * @brief 控制采样的启动和停止
- * @param enable: 1-启动采样，0-停止采样
- * @retval None
- */
-void ADS8688_SetSamplingEnabled(uint8_t enable)
-{
-  sampling_enabled = enable;
-}
-
-/**
- * @brief 通过USART1发送历史数据
- * @retval None
- */
-void ADS8688_SendHistoryData(void)
-{
-  char buffer[200];
-
-  // 发送开始标记
-  sprintf(buffer, "\r\n=== ADS8688 History Data (Sample Count: %lu) ===\r\n", sample_count);
-  HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-
-  // 发送表头
-  sprintf(buffer, "Index,CH0(V),CH1(V),CH2(V),CH3(V),CH4(V),CH5(V),CH6(V),CH7(V)\r\n");
-  HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-
-  // 发送数据
-  for (uint16_t i = 0; i < HISTORY_SIZE; i++)
-  {
-    // 计算实际的数据索引（按时间顺序）
-    uint16_t actual_index = (history_index + i) % HISTORY_SIZE;
-
-    sprintf(buffer, "%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-            i,
-            history_buffer[0][actual_index],
-            history_buffer[1][actual_index],
-            history_buffer[2][actual_index],
-            history_buffer[3][actual_index],
-            history_buffer[4][actual_index],
-            history_buffer[5][actual_index],
-            history_buffer[6][actual_index],
-            history_buffer[7][actual_index]);
-
-    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-  }
-  // 发送结束标记
-  sprintf(buffer, "=== End of History Data ===\r\n\r\n");
-  HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-  HAL_Delay(5);
-  // 可选：发送完成后重置缓冲区状态，便于下一次数据收集
-  // 注意：这里不清空数据，只是重置状态标志
-  // history_full = 0;  // 取消注释此行可以重置缓冲区满标志
-}
-
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -362,14 +212,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
