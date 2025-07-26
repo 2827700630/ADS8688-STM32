@@ -92,7 +92,7 @@ ADS8688-STM32/
 | SPI 数据输出 | SDO | PA6 (SPI1_MISO) | PA6 (SPI1_MISO) |
 | SPI 数据输入 | SDI | PA7 (SPI1_MOSI) | PA7 (SPI1_MOSI) |
 | 片选信号 | CS | 用户定义 | 用户定义 |
-| 复位信号 | RST | 用户定义 | 用户定义 |
+| 复位信号 | RST | 用户定义（不能悬空） | 用户定义（不能悬空） |
 
 ## 🔧 电压范围配置
 

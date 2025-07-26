@@ -51,7 +51,7 @@ ADS8688-STM32F103C8/
 | PA6 (SPI1_MISO) | SDO | SPI 数据输出 |
 | PA7 (SPI1_MOSI) | SDI | SPI 数据输入 |
 | ADS8688_CS | CS | 片选信号 |
-| ADS8688_RST | RST | 复位信号（低电平时复位） |
+| ADS8688_RST | RST | 复位信号（低电平时复位，不能悬空） |
 
 ### 2. 软件配置
 
